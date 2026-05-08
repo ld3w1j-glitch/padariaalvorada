@@ -1,0 +1,281 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="main"><div class="wrap">
+  <div class="card">
+    <h1 class="section-title">Configurações</h1>
+    <form method="post">
+      <label class="check-line"><input type="checkbox" name="vincular_estoque" value="1" {% if vincular_estoque %}checked{% endif %}> Vincular estoque às separações</label>
+      <label class="check-line"><input type="checkbox" name="usar_conferente" value="1" {% if usar_conferente %}checked{% endif %}> Exigir conferente</label>
+      <label class="check-line"><input type="checkbox" name="maintenance_mode" value="1" {% if maintenance_mode %}checked{% endif %}> Ativar modo manutenção para usuários comuns</label>
+      <label class="check-line"><input type="checkbox" name="code_editor_extra_password" value="1" {% if code_editor_extra_password %}checked{% endif %}> Exigir senha atual para salvar/restaurar código fonte</label>
+      <button type="submit">Salvar configurações</button>
+    </form>
+  </div>
+
+
+  <div class="card ai-config-card">
+    <div class="mcp-head">
+      <div>
+        <p class="eyebrow">IA Alvorada</p>
+        <h2 class="section-title">Conectar ChatGPT / OpenAI</h2>
+      </div>
+      <span class="badge {{ 'badge-admin' if openai_configurada else '' }}">{{ 'Conectada' if openai_configurada else 'Não configurada' }}</span>
+    </div>
+    <p class="muted">Cole sua chave da API aqui para ativar o solzinho da IA dentro do sistema. A chave fica salva no banco do sistema e aparece mascarada.</p>
+    <form method="post" class="form-grid">
+      <input type="hidden" name="vincular_estoque" value="{{ '1' if vincular_estoque else '0' }}">
+      <input type="hidden" name="usar_conferente" value="{{ '1' if usar_conferente else '0' }}">
+      <input type="hidden" name="maintenance_mode" value="{{ '1' if maintenance_mode else '0' }}">
+      <input type="hidden" name="code_editor_extra_password" value="{{ '1' if code_editor_extra_password else '0' }}">
+      <input type="hidden" name="cloud_ai_provider" value="openai">
+      <label>
+        Modelo
+        <input name="openai_model" value="{{ openai_model }}" placeholder="gpt-4.1-mini">
+      </label>
+      <label>
+        Chave API
+        <input name="openai_api_key" type="password" placeholder="Cole sua chave aqui. Atual: {{ openai_api_key_mask or 'nenhuma' }}">
+      </label>
+      <label class="check-line"><input type="checkbox" name="limpar_openai_api_key" value="1"> Remover chave salva</label>
+      <button type="submit">Salvar IA</button>
+    </form>
+    <form method="post" action="{{ url_for('testar_openai_configuracao') }}" style="margin-top:10px;">
+      <button type="submit" class="btn">Testar conexão com IA</button>
+    </form>
+  </div>
+
+
+  <div class="card ai-config-card gemini-config-card">
+    <div class="mcp-head">
+      <div>
+        <p class="eyebrow">Google AI Studio</p>
+        <h2 class="section-title">Conectar Gemini</h2>
+      </div>
+      <span class="badge {{ 'badge-admin' if google_ai_configurada else '' }}">{{ 'Conectada' if google_ai_configurada else 'Não configurada' }}</span>
+    </div>
+    <p class="muted">Use esta opção caso queira usar uma chave do Google AI Studio/Gemini. O sistema agora evita o erro do <strong>gemini-1.5-flash</strong> buscando modelos compatíveis com <strong>generateContent</strong>.</p>
+    <form method="post" class="form-grid">
+      <input type="hidden" name="vincular_estoque" value="{{ '1' if vincular_estoque else '0' }}">
+      <input type="hidden" name="usar_conferente" value="{{ '1' if usar_conferente else '0' }}">
+      <input type="hidden" name="maintenance_mode" value="{{ '1' if maintenance_mode else '0' }}">
+      <input type="hidden" name="code_editor_extra_password" value="{{ '1' if code_editor_extra_password else '0' }}">
+      <input type="hidden" name="cloud_ai_provider" value="gemini">
+      <label>
+        Modelo Gemini
+        <input name="google_ai_model" value="{{ google_ai_model }}" list="geminiModelsList" placeholder="gemini-2.5-flash">
+        <datalist id="geminiModelsList">
+          {% for modelo in modelos_gemini %}
+            <option value="{{ modelo.model }}">{{ modelo.displayName }}</option>
+          {% endfor %}
+        </datalist>
+      </label>
+      <label>
+        Chave API Gemini
+        <input name="google_ai_api_key" type="password" placeholder="Cole sua chave aqui. Atual: {{ google_ai_api_key_mask or 'nenhuma' }}">
+      </label>
+      <label class="check-line"><input type="checkbox" name="limpar_google_ai_api_key" value="1"> Remover chave Gemini salva</label>
+      <button type="submit">Salvar Gemini como IA principal</button>
+    </form>
+    <div class="mcp-form-actions" style="margin-top:10px;">
+      <form method="post" action="{{ url_for('testar_gemini_configuracao') }}">
+        <button type="submit" class="btn">Testar Gemini</button>
+      </form>
+      <button type="button" class="btn secondary" id="scanGeminiModelsBtn">Listar modelos Gemini</button>
+    </div>
+    <p class="mini">Modelo recomendado inicial: <strong>gemini-2.5-flash</strong>. Se sua chave não tiver acesso a ele, clique em listar modelos e escolha um disponível.</p>
+  </div>
+
+
+  <div class="card ai-config-card">
+    <div class="mcp-head">
+      <div>
+        <p class="eyebrow">IA offline local</p>
+        <h2 class="section-title">Modelo offline do sistema</h2>
+      </div>
+      <span class="badge {{ 'badge-admin' if offline_ai_conectada else '' }}">{{ 'Conectado' if offline_ai_conectada else 'Desativado' }}</span>
+    </div>
+    <p class="muted">
+      Escolha um modelo local do Ollama ou LM Studio para alimentar o chat, as observações e o comando <strong>/agente</strong> em qualquer campo de texto do sistema.
+      Arquivos GGUF aparecem na lista, mas para responder precisam estar carregados em um servidor como Ollama ou LM Studio.
+    </p>
+    <form method="post" class="form-grid">
+      <input type="hidden" name="vincular_estoque" value="{{ '1' if vincular_estoque else '0' }}">
+      <input type="hidden" name="usar_conferente" value="{{ '1' if usar_conferente else '0' }}">
+      <input type="hidden" name="maintenance_mode" value="{{ '1' if maintenance_mode else '0' }}">
+      <input type="hidden" name="code_editor_extra_password" value="{{ '1' if code_editor_extra_password else '0' }}">
+      <input type="hidden" name="openai_model" value="{{ openai_model }}">
+      <input type="hidden" name="offline_ai_form" value="1">
+      <label class="check-line"><input type="checkbox" name="offline_ai_enabled" value="1" {% if offline_ai_enabled %}checked{% endif %}> Usar modelo offline como IA principal</label>
+      <label>
+        Modelo offline encontrado
+        <select name="offline_ai_model_id" id="offlineAiModelSelect">
+          <option value="">Nenhum modelo selecionado</option>
+          {% for modelo in modelos_offline %}
+            <option value="{{ modelo.id }}" {% if modelo.id == offline_ai_model_id %}selected{% endif %}>{{ modelo.origem }} — {{ modelo.nome }}{% if modelo.detalhe %} ({{ modelo.detalhe }}){% endif %}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="button" class="btn" id="scanOfflineModelsBtn">Escanear novamente</button>
+      <button type="submit">Salvar modelo offline</button>
+    </form>
+    <form method="post" action="{{ url_for('testar_modelo_offline_configuracao') }}" style="margin-top:10px;">
+      <input type="hidden" name="offline_ai_model_id" value="{{ offline_ai_model_id }}">
+      <button type="submit" class="btn">Testar modelo offline</button>
+    </form>
+    <p class="mini">No chat e em qualquer textarea/input, use: <strong>/agente sua pergunta aqui</strong>. O sistema troca o texto pela resposta da IA antes de enviar, quando possível.</p>
+  </div>
+
+  <div class="card danger-zone-card">
+    <div class="mcp-head">
+      <div>
+        <p class="eyebrow">Zona de segurança</p>
+        <h2 class="section-title">Resetar sistema</h2>
+      </div>
+      <span class="badge">Somente admin</span>
+    </div>
+    <p class="muted">
+      Use esta opção para limpar dados do sistema e deixar apenas o usuário admin atual ativo.
+      Serão removidos estoque, movimentações, separações, balanços, recebimentos, receitas, ordens, chats, tarefas, anotações, usuários comuns e históricos operacionais.
+    </p>
+    <form method="post" action="{{ url_for('resetar_sistema_configuracao') }}" class="form-grid" onsubmit="return confirm('Tem certeza que deseja resetar o sistema? Esta ação não pode ser desfeita.');">
+      <label>
+        Senha do admin
+        <input type="password" name="senha_admin" required placeholder="Digite sua senha atual">
+      </label>
+      <label>
+        Confirmação
+        <input name="confirmar_reset" required placeholder="Digite RESETAR para confirmar">
+      </label>
+      <button type="submit" class="btn danger-btn">Resetar e limpar tudo</button>
+    </form>
+    <p class="mini">Depois do reset, você será desconectado e deverá entrar novamente com o admin.</p>
+  </div>
+
+  <div class="card mcp-card mcp-config-card-enhanced">
+    <div class="mcp-config-hero">
+      <div>
+        <p class="eyebrow">Integração com IA</p>
+        <h2 class="section-title">Servidor MCP do Sistema Alvorada</h2>
+        <p class="muted">O MCP conecta a IA ao seu sistema para consultar estoque, lotes, lojas e movimentações em modo seguro, sem alterar o banco de dados.</p>
+      </div>
+      <div class="mcp-hero-badges">
+        <span class="badge badge-admin">Modo leitura</span>
+        <span class="badge">Local</span>
+        <span class="badge">Seguro</span>
+      </div>
+    </div>
+
+    <div class="mcp-config-summary">
+      <div class="mcp-summary-card">
+        <span>Conexão</span>
+        <strong>Pronta para usar</strong>
+      </div>
+      <div class="mcp-summary-card">
+        <span>Fontes</span>
+        <strong>Estoque + lojas + lotes</strong>
+      </div>
+      <div class="mcp-summary-card">
+        <span>Resposta</span>
+        <strong>Tabela + texto</strong>
+      </div>
+    </div>
+
+    <div class="grid-2 mcp-info-grid">
+      <div class="mini-panel">
+        <strong>Comando para iniciar</strong>
+        <code>{{ mcp_command }}</code>
+      </div>
+      <div class="mini-panel">
+        <strong>Banco conectado</strong>
+        <code>{{ mcp_db_path }}</code>
+      </div>
+    </div>
+
+    <div class="mcp-flow-grid">
+      <div class="mini-panel">
+        <strong>Como funciona</strong>
+        <div class="mcp-flow-list">
+          <div><b>1.</b> Escolha ou conecte seu modelo offline</div>
+          <div><b>2.</b> A IA chama as ferramentas MCP em modo leitura</div>
+          <div><b>3.</b> O sistema devolve resposta estruturada e exportável</div>
+        </div>
+      </div>
+      <div class="mini-panel">
+        <strong>Ferramentas disponíveis</strong>
+        <div class="mcp-tool-grid">
+          <span class="mcp-tool-chip">status_sistema</span>
+          <span class="mcp-tool-chip">consultar_produto</span>
+          <span class="mcp-tool-chip">listar_produtos_estoque</span>
+          <span class="mcp-tool-chip">listar_estoque_baixo</span>
+          <span class="mcp-tool-chip">listar_lojas</span>
+          <span class="mcp-tool-chip">listar_lotes_abertos</span>
+          <span class="mcp-tool-chip">consultar_lote</span>
+          <span class="mcp-tool-chip">listar_movimentacoes_estoque</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="mcp-config-actions">
+      <a class="btn" href="{{ url_for('mcp_teste') }}">Abrir central MCP/IA</a>
+      <span class="mini">Arquivo de instruções: <strong>README_MCP.md</strong>. Exemplo de configuração: <strong>mcp_config_exemplo.json</strong>.</span>
+    </div>
+  </div>
+</div></section>
+
+<script>
+  const scanOfflineModelsBtn = document.getElementById('scanOfflineModelsBtn');
+  const offlineAiModelSelect = document.getElementById('offlineAiModelSelect');
+  const scanGeminiModelsBtn = document.getElementById('scanGeminiModelsBtn');
+
+  if (scanGeminiModelsBtn) {
+    scanGeminiModelsBtn.addEventListener('click', async () => {
+      scanGeminiModelsBtn.disabled = true;
+      scanGeminiModelsBtn.textContent = 'Buscando modelos...';
+      try {
+        const resp = await fetch('{{ url_for('api_configuracoes_modelos_gemini') }}');
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) throw new Error(data.erro || 'Falha ao listar modelos Gemini.');
+        const nomes = (data.modelos || []).map((m) => m.model || m.name).filter(Boolean);
+        if (!nomes.length) {
+          alert('Nenhum modelo Gemini foi listado. Confira se a chave do Google AI Studio está salva.');
+        } else {
+          alert('Modelos compatíveis com generateContent:\n\n' + nomes.join('\n'));
+        }
+      } catch (err) {
+        alert(err.message || err);
+      } finally {
+        scanGeminiModelsBtn.disabled = false;
+        scanGeminiModelsBtn.textContent = 'Listar modelos Gemini';
+      }
+    });
+  }
+
+  if (scanOfflineModelsBtn && offlineAiModelSelect) {
+    scanOfflineModelsBtn.addEventListener('click', async () => {
+      scanOfflineModelsBtn.disabled = true;
+      scanOfflineModelsBtn.textContent = 'Escaneando...';
+      try {
+        const resp = await fetch('{{ url_for('api_configuracoes_modelos_offline') }}');
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) throw new Error(data.erro || 'Falha ao escanear modelos.');
+        const atual = offlineAiModelSelect.value || data.selecionado || '';
+        offlineAiModelSelect.innerHTML = '<option value="">Nenhum modelo selecionado</option>';
+        (data.modelos || []).forEach((m) => {
+          const opt = document.createElement('option');
+          opt.value = m.id;
+          opt.textContent = `${m.origem} — ${m.nome}${m.detalhe ? ' (' + m.detalhe + ')' : ''}`;
+          if (m.id === atual) opt.selected = true;
+          offlineAiModelSelect.appendChild(opt);
+        });
+        if (!(data.modelos || []).length) alert('Nenhum modelo encontrado. Abra o Ollama ou LM Studio e tente novamente.');
+      } catch (err) {
+        alert(err.message || err);
+      } finally {
+        scanOfflineModelsBtn.disabled = false;
+        scanOfflineModelsBtn.textContent = 'Escanear novamente';
+      }
+    });
+  }
+</script>
+
+{% endblock %}

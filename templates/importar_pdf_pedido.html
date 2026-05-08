@@ -1,0 +1,218 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="main"><div class="wrap">
+  <div class="card">
+    <h1 class="section-title">Importar PDF padrão</h1>
+    <p class="muted">Envie um PDF textual no padrão do pedido. O sistema tenta identificar pedido, loja, data e itens. Antes de criar a separação ou exportar, você pode ajustar os campos da tabela. Todos os campos pedem confirmação para edição, exceto o campo Qtd., que fica sempre liberado para preenchimento.</p>
+    <form method="post" enctype="multipart/form-data" class="grid-2">
+      <input type="hidden" name="action" value="preview">
+      <label>Arquivo PDF
+        <input type="file" name="pdf_file" accept="application/pdf,.pdf" required>
+      </label>
+      <div class="form-actions align-end">
+        <button type="submit">Ler PDF</button>
+      </div>
+    </form>
+  </div>
+
+  {% if preview is not none %}
+  <form method="post" id="pdf-edit-form" class="card pdf-preview-card">
+    <h2 class="section-title">Prévia editável</h2>
+    <p class="muted">Ajuste as quantidades livremente. Todos os outros campos pedem confirmação com 👍 para liberar a edição ou 👎 para cancelar.</p>
+    {% set tem_loja_por_item = preview.itens|selectattr('loja_nome')|list|length > 0 %}
+    {% if preview.modelo_pdf == 'lista_reabastecimento_multiloja' %}
+      <p class="success-inline">Modelo multiloja detectado. O sistema vai criar uma separação por loja encontrada no PDF.</p>
+    {% endif %}
+
+    <div class="grid-3">
+      <label>Pedido
+        <input type="text" name="pedido" value="{{ preview.pedido }}" class="confirm-edit">
+      </label>
+      <label>Loja/Cliente do PDF
+        <input type="text" name="loja_pdf" value="{{ preview.loja }}" class="confirm-edit">
+      </label>
+      <input type="hidden" name="loja_numero" value="{{ preview.loja_numero or '' }}">
+      <input type="hidden" name="loja_nome" value="{{ preview.loja_nome or '' }}">
+      <input type="hidden" name="loja_motivo" value="{{ preview.loja_motivo or '' }}">
+      <label>Data encontrada no PDF
+        <input type="text" name="data_doc" value="{{ preview.data_doc }}" class="confirm-edit">
+      </label>
+    </div>
+
+    <div class="table-scroll">
+      <table class="data-table editable-table" id="pdf-items-table">
+        <thead>
+          <tr>
+            {% if tem_loja_por_item %}<th>Loja</th><th>Pedido</th>{% endif %}
+            <th>Código</th>
+            <th>Descrição</th>
+            <th>Emb.</th>
+            <th>Qtd.</th>
+            <th>Custo ref.</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in preview.itens %}
+          <tr>
+            {% if tem_loja_por_item %}
+              <td>
+                <input type="hidden" name="loja_numero_item[]" value="{{ item.loja_numero or '' }}">
+                <input type="hidden" name="loja_nome_item[]" value="{{ item.loja_nome or '' }}">
+                <span class="badge-soft">{{ item.loja_nome or item.loja_numero }}</span>
+              </td>
+              <td>
+                <input type="hidden" name="pedido_item[]" value="{{ item.pedido_origem or '' }}">
+                <span class="muted">{{ item.pedido_origem or '-' }}</span>
+              </td>
+            {% else %}
+              <input type="hidden" name="loja_numero_item[]" value="">
+              <input type="hidden" name="loja_nome_item[]" value="">
+              <input type="hidden" name="pedido_item[]" value="">
+            {% endif %}
+            <td><input name="codigo[]" value="{{ item.codigo }}" class="confirm-edit" required></td>
+            <td><input name="descricao[]" value="{{ item.descricao }}" class="confirm-edit" required></td>
+            <td><input name="fator_embalagem[]" value="{{ fmt_num(item.fator_embalagem) }}" class="confirm-edit small-input" required></td>
+            <td><input name="quantidade[]" value="{{ fmt_num(item.quantidade) }}" class="small-input" required></td>
+            <td><input name="custo_unitario_ref[]" value="{{ fmt_num(item.custo_unitario_ref) }}" class="confirm-edit small-input"></td>
+            <td><button type="button" class="button-secondary remove-row">Remover</button></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <button type="button" class="button-secondary" id="add-row">Adicionar item manualmente</button>
+
+    <hr>
+    <h2 class="section-title">Criar separação com esses itens</h2>
+    <div class="grid-3">
+      <label>Nome do lote
+        <input type="text" name="lote_nome" value="{% if preview.pedido %}PDF {{ preview.pedido }}{% endif %}" placeholder="Ex.: Pedido PDF loja 01">
+      </label>
+      <label>Data de referência
+        <input type="date" name="data_referencia" value="{{ hoje }}">
+      </label>
+      <label>Responsável
+        <select name="responsavel_id">
+          <option value="">Selecione</option>
+          {% for u in separadores %}<option value="{{ u.id }}">{{ u.nome }}</option>{% endfor %}
+        </select>
+      </label>
+    </div>
+
+    {% if usar_conferente %}
+    <label>Conferente
+      <select name="conferente_id">
+        <option value="">Sem conferente</option>
+        {% for u in conferentes %}<option value="{{ u.id }}">{{ u.nome }}</option>{% endfor %}
+      </select>
+    </label>
+    {% endif %}
+
+    <label class="check-line"><input type="checkbox" name="usar_estoque" value="1" checked> Usar controle de estoque neste lote</label>
+
+    <div>
+      <p class="muted">Selecione as lojas que receberão essa separação:{% if tem_loja_por_item %} como o PDF já trouxe lojas por página, elas ficam marcadas automaticamente e serão usadas para criar as separações.{% endif %}</p>
+      {% if preview.loja_nome %}
+        <p class="success-inline">Loja detectada automaticamente: <strong>{{ preview.loja_nome }}</strong>{% if preview.loja_motivo %} pelo identificador <strong>{{ preview.loja_motivo }}</strong>{% endif %}. Ela já fica marcada abaixo.</p>
+      {% elif preview.loja %}
+        <p class="muted">Não encontrei correspondência automática para “{{ preview.loja }}”. Marque a loja manualmente.</p>
+      {% endif %}
+      <div class="checkbox-grid">
+        {% for store in stores %}
+          {% set detectada = (preview.loja_nome and store.nome == preview.loja_nome) or (preview.lojas_detectadas and store.nome in preview.lojas_detectadas.values()) %}
+          <label class="check-line"><input type="checkbox" name="stores" value="{{ store.id }}" {% if detectada %}checked{% endif %}> {{ store.nome }}</label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <textarea name="observacao" placeholder="Observação interna da separação"></textarea>
+
+    <div class="form-actions gap-actions">
+      <button type="submit" name="action" value="criar_separacao">Criar separação</button>
+      <button type="submit" name="action" value="export_excel" class="button-secondary">Exportar para Excel</button>
+    </div>
+  </form>
+  {% endif %}
+</div></section>
+
+<div class="edit-confirm-pop" id="edit-confirm-pop" hidden>
+  <div>Deseja editar esse campo?</div>
+  <button type="button" data-choice="yes" title="Editar">👍</button>
+  <button type="button" data-choice="no" title="Cancelar">👎</button>
+</div>
+
+<script>
+(function(){
+  const popup = document.getElementById('edit-confirm-pop');
+  let target = null;
+
+  function lockInput(input) {
+    input.dataset.locked = '1';
+    input.readOnly = true;
+  }
+  function unlockInput(input) {
+    input.dataset.locked = '0';
+    input.readOnly = false;
+    input.focus();
+    input.select && input.select();
+  }
+
+  document.querySelectorAll('.confirm-edit').forEach(lockInput);
+
+  document.addEventListener('click', function(ev){
+    const input = ev.target.closest && ev.target.closest('.confirm-edit');
+    if (!input) {
+      if (popup && !ev.target.closest('#edit-confirm-pop')) popup.hidden = true;
+      return;
+    }
+    if (input.dataset.locked !== '1') return;
+    ev.preventDefault();
+    target = input;
+    const rect = input.getBoundingClientRect();
+    popup.style.left = Math.min(rect.left + window.scrollX, window.scrollX + window.innerWidth - 260) + 'px';
+    popup.style.top = (rect.bottom + window.scrollY + 6) + 'px';
+    popup.hidden = false;
+  }, true);
+
+  popup && popup.addEventListener('click', function(ev){
+    const btn = ev.target.closest('button[data-choice]');
+    if (!btn || !target) return;
+    if (btn.dataset.choice === 'yes') unlockInput(target);
+    popup.hidden = true;
+    target = null;
+  });
+
+  const table = document.getElementById('pdf-items-table');
+  const hasStoreColumns = {{ 'true' if tem_loja_por_item else 'false' }};
+  document.getElementById('add-row')?.addEventListener('click', function(){
+    const tr = document.createElement('tr');
+    const storeCells = hasStoreColumns
+      ? '<td><input type="hidden" name="loja_numero_item[]" value=""><input type="hidden" name="loja_nome_item[]" value=""><span class="muted">Manual</span></td><td><input type="hidden" name="pedido_item[]" value=""><span class="muted">-</span></td>'
+      : '<input type="hidden" name="loja_numero_item[]" value=""><input type="hidden" name="loja_nome_item[]" value=""><input type="hidden" name="pedido_item[]" value="">';
+    tr.innerHTML = `
+      ${storeCells}
+      <td><input name="codigo[]" value="" class="confirm-edit" required></td>
+      <td><input name="descricao[]" value="" class="confirm-edit" required></td>
+      <td><input name="fator_embalagem[]" value="1" class="confirm-edit small-input" required></td>
+      <td><input name="quantidade[]" value="1" class="small-input" required></td>
+      <td><input name="custo_unitario_ref[]" value="0" class="confirm-edit small-input"></td>
+      <td><button type="button" class="button-secondary remove-row">Remover</button></td>`;
+    table.querySelector('tbody').appendChild(tr);
+    tr.querySelectorAll('.confirm-edit').forEach(lockInput);
+    tr.querySelector('input[name="quantidade[]"]')?.focus();
+  });
+
+  document.addEventListener('click', function(ev){
+    const btn = ev.target.closest('.remove-row');
+    if (!btn) return;
+    const tr = btn.closest('tr');
+    if (tr && confirm('Remover este item da importação?')) tr.remove();
+  });
+
+  document.getElementById('pdf-edit-form')?.addEventListener('submit', function(){
+    document.querySelectorAll('.confirm-edit').forEach(function(input){ input.readOnly = false; });
+  });
+})();
+</script>
+{% endblock %}

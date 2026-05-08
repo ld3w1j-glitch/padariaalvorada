@@ -1,0 +1,152 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="main">
+  <div class="wrap">
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start;">
+        <div>
+          <span class="eyebrow">Relatórios</span>
+          <h1 class="section-title">Estoque geral por linhas</h1>
+          <p class="muted">Resumo calculado diretamente de todos os itens ativos existentes no estoque.</p>
+          <p class="muted">Gerado em {{ dados_estoque_linhas.gerado_em }}</p>
+        </div>
+        <div class="inline">
+          <a class="btn" href="{{ url_for('relatorio_gerencial') }}">Abrir relatório detalhado</a>
+          <a class="btn btn-secondary" href="{{ url_for('exportar_relatorio_estoque_linhas_excel', linha=dados_estoque_linhas.filtro_linha) }}">Exportar linhas Excel</a>
+          <a class="btn btn-secondary" href="{{ url_for('relatorio_gerencial_pdf') }}">PDF gerencial</a>
+        </div>
+      </div>
+
+      <form method="get" class="report-filter-panel estoque-linha-filter">
+        <label>Filtrar por linha
+          <select name="linha" onchange="this.form.submit()">
+            <option value="">Todas as linhas</option>
+            {% for opcao in dados_estoque_linhas.opcoes_linhas %}
+              <option value="{{ opcao.linha }}" {% if dados_estoque_linhas.filtro_linha == opcao.linha %}selected{% endif %}>{{ opcao.linha }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <div class="inline">
+          <button class="btn" type="submit">Aplicar filtro</button>
+          {% if dados_estoque_linhas.filtro_linha %}
+            <a class="btn btn-secondary" href="{{ url_for('relatorios') }}">Limpar filtro</a>
+          {% endif %}
+        </div>
+      </form>
+      {% if dados_estoque_linhas.filtro_linha %}
+        <p class="muted">Exibindo somente a linha: <strong>{{ dados_estoque_linhas.filtro_linha }}</strong></p>
+      {% endif %}
+
+      <div class="stats relatorios-padaria-stats">
+        <div class="stat"><span>Valor total do estoque</span><strong>{{ fmt_money(dados_estoque_linhas.resumo.valor_estoque or 0) }}</strong></div>
+        <div class="stat"><span>Qtd. total em estoque</span><strong>{{ fmt_num(dados_estoque_linhas.resumo.quantidade_total or 0) }}</strong></div>
+        <div class="stat"><span>Linhas encontradas</span><strong>{{ dados_estoque_linhas.resumo.total_linhas or 0 }}</strong></div>
+        <div class="stat"><span>Itens existentes</span><strong>{{ dados_estoque_linhas.resumo.produtos or 0 }}</strong></div>
+        <div class="stat"><span>Abaixo do estoque</span><strong>{{ dados_estoque_linhas.resumo.baixo or 0 }}</strong></div>
+        <div class="stat"><span>Itens zerados</span><strong>{{ dados_estoque_linhas.resumo.zerados or 0 }}</strong></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start;">
+        <div>
+          <h2 class="section-title">Todas as linhas existentes no estoque</h2>
+          <p class="muted">Cada linha soma quantidade atual, valor estimado, itens zerados e itens com saldo baixo.</p>
+          {% if dados_estoque_linhas.filtro_linha %}<p class="muted">Filtro ativo: <strong>{{ dados_estoque_linhas.filtro_linha }}</strong></p>{% endif %}
+        </div>
+      </div>
+      <div class="table-responsive"><table>
+        <thead>
+          <tr>
+            <th>Linha do estoque</th>
+            <th>Itens existentes</th>
+            <th>Qtd. estoque</th>
+            <th>Abaixo do estoque</th>
+            <th>Zerados</th>
+            <th>Custo médio</th>
+            <th>Valor estimado</th>
+            <th>Ação</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for linha in dados_estoque_linhas.linhas %}
+          <tr>
+            <td>{{ linha.linha }}</td>
+            <td>{{ linha.produtos or 0 }}</td>
+            <td>{{ fmt_num(linha.saldo or 0) }}</td>
+            <td>{{ linha.baixo or 0 }}</td>
+            <td>{{ linha.zerados or 0 }}</td>
+            <td>{{ fmt_money(linha.custo_medio or 0) }}</td>
+            <td>{{ fmt_money(linha.valor or 0) }}</td>
+            <td><a class="btn btn-secondary" href="{{ url_for('relatorio_gerencial', linha_base=linha.linha) }}">Detalhar</a></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="8" class="empty">Nenhuma linha encontrada no estoque.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start;">
+        <div>
+          <span class="eyebrow">Recorte principal</span>
+          <h2 class="section-title">Padaria</h2>
+          <p class="muted">Resumo direto do estoque atual da linha <strong>{{ dados_padaria.linha_base }}</strong>.</p>
+        </div>
+      </div>
+
+      <div class="stats relatorios-padaria-stats">
+        <div class="stat"><span>Valor Padaria</span><strong>{{ fmt_money(dados_padaria.estoque.valor_estoque or 0) }}</strong></div>
+        <div class="stat"><span>Qtd. total em estoque</span><strong>{{ fmt_num(dados_padaria.estoque.quantidade_total or 0) }}</strong></div>
+        <div class="stat"><span>Itens existentes</span><strong>{{ dados_padaria.estoque.produtos or 0 }}</strong></div>
+        <div class="stat"><span>Abaixo do estoque</span><strong>{{ dados_padaria.estoque.baixo or 0 }}</strong></div>
+        <div class="stat"><span>Itens zerados</span><strong>{{ dados_padaria.estoque.zerados or 0 }}</strong></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="section-title">Linhas dentro da Padaria</h2>
+      <div class="table-responsive"><table>
+        <thead>
+          <tr>
+            <th>Linha interna</th>
+            <th>Itens existentes</th>
+            <th>Qtd. estoque</th>
+            <th>Abaixo do estoque</th>
+            <th>Zerados</th>
+            <th>Valor</th>
+            <th>Ação</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for linha in dados_padaria.linhas %}
+          <tr>
+            <td>{{ linha.linha }}</td>
+            <td>{{ linha.produtos or 0 }}</td>
+            <td>{{ fmt_num(linha.saldo or 0) }}</td>
+            <td>{{ linha.baixo or 0 }}</td>
+            <td>{{ linha.zerados or 0 }}</td>
+            <td>{{ fmt_money(linha.valor or 0) }}</td>
+            <td><a class="btn btn-secondary" href="{{ url_for('relatorio_gerencial', linha_base=dados_padaria.linha_base, sublinha=linha.linha) }}">Filtrar</a></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="7" class="empty">Nenhuma linha encontrada para Padaria.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    </div>
+  </div>
+</section>
+
+<style>
+.estoque-linha-filter{display:grid;grid-template-columns:minmax(240px, 1fr) auto;gap:12px;align-items:end;margin:16px 0;}
+.estoque-linha-filter label{display:flex;flex-direction:column;gap:6px;font-weight:700;}
+.estoque-linha-filter select{width:100%;min-height:42px;border:1px solid var(--border,#ddd);border-radius:12px;padding:9px 12px;background:#fff;}
+@media(max-width:760px){.estoque-linha-filter{grid-template-columns:1fr}.estoque-linha-filter .inline{width:100%;}.estoque-linha-filter .btn{width:100%;}}
+</style>
+
+{% with assistente_contexto='relatorios', assistente_titulo='Assistente IA dos Relatórios', assistente_linha='Estoque geral' %}
+{% include 'partials/_assistente_ia.html' %}
+{% endwith %}
+{% endblock %}

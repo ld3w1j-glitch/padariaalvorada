@@ -1,0 +1,70 @@
+{% macro nav_icon(name) -%}<span class="ci ci-{{ name }}" aria-hidden="true"></span>{%- endmacro %}
+<header class="topbar" id="main-topbar">
+  <div class="wrap">
+    <div class="topbar-head">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"><img src="/static/img/logo_alvorada.png" alt="Alvorada"></div>
+        <div>
+          <strong>PADARIA SISTEMA</strong>
+          <span>
+            {{ g.user['nome'] }} • {{ role_label(g.user['role']) }} • {{ permission_level_label(g.user['permission_level'] if 'permission_level' in g.user.keys() else '', g.user['role']) }}
+          </span>
+        </div>
+      </div>
+      <button type="button" class="menu-toggle" id="menu-toggle" aria-expanded="false" aria-controls="main-nav">Menu</button>
+    </div>
+    <nav class="nav" id="main-nav">
+      {% if user_has_access(g.user, 'painel') %}<a href="{{ url_for('dashboard') }}">{{ nav_icon('home') }} Painel</a>{% endif %}
+      {% if user_has_access(g.user, 'separacoes') %}<a href="{{ url_for('listar_separacoes') }}">{{ nav_icon('list') }} Separações</a>{% endif %}
+      {% if user_has_access(g.user, 'estoque') %}<a href="{{ url_for('estoque') }}">{{ nav_icon('box') }} Estoque</a>{% endif %}
+      {% if user_has_access(g.user, 'impressao_rapida') %}<a href="{{ url_for('impressao_rapida') }}">{{ nav_icon('print') }} Impressão rápida</a>{% endif %}
+      {% if user_has_access(g.user, 'recebimentos') %}<a href="{{ url_for('recebimentos') }}">{{ nav_icon('download') }} Recebimentos</a>{% endif %}
+      {% if user_has_access(g.user, 'balanco') %}<a href="{{ url_for('balancos') }}">{{ nav_icon('check') }} Balanço</a>{% endif %}
+      {% if user_has_access(g.user, 'receitas') %}<a href="{{ url_for('receitas') }}">{{ nav_icon('cart') }} Receitas/Produção</a>{% endif %}
+      {% if user_has_access(g.user, 'estoque') and user_has_access(g.user, 'receitas') %}<a href="{{ url_for('importar_estoque_erp') }}">{{ nav_icon('upload') }} Importar ERP</a>{% endif %}
+      {% if user_has_access(g.user, 'relatorios') %}<a href="{{ url_for('relatorios') }}">{{ nav_icon('chart') }} Relatórios</a>{% endif %}
+      {% if user_has_access(g.user, 'usuarios') %}<a href="{{ url_for('usuarios') }}">{{ nav_icon('user') }} Usuários</a>{% endif %}
+      {% if user_has_access(g.user, 'lojas') %}<a href="{{ url_for('lojas') }}">{{ nav_icon('store') }} Lojas</a>{% endif %}
+      {% if user_has_access(g.user, 'pedidos') %}<a href="{{ url_for('nova_separacao') }}">{{ nav_icon('cart') }} Criar pedidos</a>{% endif %}
+      {% if user_has_access(g.user, 'pedidos') %}<a href="{{ url_for('importar_pdf_pedido') }}">{{ nav_icon('upload') }} Importar PDF</a>{% endif %}
+      {% if user_has_access(g.user, 'lotes') %}<a href="{{ url_for('listar_lotes') }}">{{ nav_icon('grid') }} Lotes</a>{% endif %}
+      {% if user_has_access(g.user, 'configuracoes') %}<a href="{{ url_for('configuracoes') }}">{{ nav_icon('settings') }} Configurações</a>{% endif %}
+      {% if user_has_access(g.user, 'mcp_teste') %}<a href="{{ url_for('mcp_teste') }}">{{ nav_icon('bot') }} MCP/IA</a>{% endif %}
+      {% if user_has_access(g.user, 'comunicacao') %}<a href="{{ url_for('comunicacao') }}">{{ nav_icon('chat') }} Chat/Tarefas</a>{% endif %}
+      {% if user_has_access(g.user, 'area_usuario') %}<a href="{{ url_for('area_usuario') }}">{{ nav_icon('profile') }} Área do usuário</a>{% endif %}
+      {% if user_has_access(g.user, 'codigo_fonte') %}<a href="{{ url_for('admin_codigo_fonte') }}">{{ nav_icon('code') }} Código fonte</a>{% endif %}
+      {% if user_has_access(g.user, 'auditoria') %}<a href="{{ url_for('auditoria') }}">{{ nav_icon('shield') }} Auditoria</a>{% endif %}
+      <a href="{{ url_for('minha_conta') }}">{{ nav_icon('profile') }} Minha conta</a>
+      <a href="{{ url_for('logout') }}">{{ nav_icon('logout') }} Sair</a>
+    </nav>
+  </div>
+</header>
+<script>
+(function(){
+  const topbar = document.getElementById('main-topbar');
+  const toggle = document.getElementById('menu-toggle');
+  const nav = document.getElementById('main-nav');
+  if (!topbar || !toggle || !nav) return;
+
+  function closeMenu() {
+    topbar.classList.remove('is-open');
+    document.body.classList.remove('menu-open');
+    toggle.setAttribute('aria-expanded', 'false');
+  }
+
+  toggle.addEventListener('click', function(){
+    const open = topbar.classList.toggle('is-open');
+    document.body.classList.toggle('menu-open', open);
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) { nav.scrollTop = 0; }
+  });
+
+  nav.querySelectorAll('a').forEach(function(link){
+    link.addEventListener('click', closeMenu);
+  });
+
+  window.addEventListener('resize', function(){
+    if (window.innerWidth > 760) closeMenu();
+  });
+})();
+</script>

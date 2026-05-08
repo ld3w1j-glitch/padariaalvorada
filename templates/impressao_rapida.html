@@ -1,0 +1,357 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="main"><div class="wrap grid-2">
+  <div class="card">
+    <h1 class="section-title">Impressão rápida pela Base.xlsx</h1>
+    <p class="muted">Use o modelo da planilha enviada para preencher etiqueta/ficha, visualizar o tamanho antes de imprimir e enviar para a impressora instalada no computador/servidor.</p>
+
+    <form method="get" class="stock-search-form stock-search-form-simple" id="form-busca-estoque">
+      <label class="stock-label">Buscar produto existente no estoque</label>
+      <div class="camera-input-row">
+        <input id="q-busca-estoque" type="text" name="q" value="{{ q or '' }}" placeholder="Código, código de barras ou descrição">
+        <button class="btn-secondary camera-scan-btn" type="button" data-scan-target="q-busca-estoque" data-scan-mode="search">📷 Ler câmera</button>
+      </div>
+      <p class="mini">No celular, toque em <strong>Ler câmera</strong> para apontar para um código de barras ou QR Code e buscar direto no estoque.</p>
+      <div class="stock-search-actions">
+        <button class="btn-secondary" type="submit">Buscar no estoque</button>
+        {% if q %}<a class="btn btn-secondary" href="{{ url_for('impressao_rapida') }}">Limpar</a>{% endif %}
+      </div>
+    </form>
+
+    {% if produtos %}
+      <div class="stock-result-list" style="margin-top:14px;">
+        {% for item in produtos %}
+        <article class="stock-item-card">
+          <div class="stock-item-head">
+            <div>
+              <div class="stock-item-code">Código {{ item.codigo }}</div>
+              <div class="mini">Barras: {{ item.codigo_barras or '-' }}</div>
+            </div>
+            <div class="stock-qty-badge">Saldo {{ fmt_num(item.quantidade_atual) }}</div>
+          </div>
+          <h3 class="stock-item-title">{{ item.descricao }}</h3>
+          <div class="stock-item-actions">
+            <a class="btn btn-secondary" href="{{ url_for('impressao_rapida', q=q, stock_item_id=item.id) }}">Usar este item</a>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+    {% elif q %}
+      <div class="empty stock-empty-state">Nenhum produto encontrado. Você ainda pode preencher os campos manualmente ao lado.</div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2 class="section-title">Dados para preencher, visualizar e imprimir</h2>
+    <form method="post" id="form-impressao-rapida">
+      <input type="hidden" name="q" value="{{ q or '' }}">
+      <div class="inline">
+        <div style="width:100%;">
+          <label class="stock-label">Produto</label>
+          <input class="live-preview" data-preview-target="pv-produto" type="text" name="produto" value="{{ form.produto }}" placeholder="Nome do produto" required>
+        </div>
+        <div style="width:160px;">
+          <label class="stock-label">Código</label>
+          <div class="camera-input-row compact">
+            <input id="campo-codigo" class="live-preview" data-preview-target="pv-codigo" type="text" name="codigo" value="{{ form.codigo }}" placeholder="Código">
+            <button class="btn-secondary camera-scan-btn icon-only" type="button" data-scan-target="campo-codigo" data-scan-mode="field" title="Ler código com a câmera">📷</button>
+          </div>
+        </div>
+      </div>
+      <div class="inline">
+        <div>
+          <label class="stock-label">Peso / Embalagem</label>
+          <input class="live-preview" data-preview-target="pv-peso" type="text" name="peso" value="{{ form.peso }}" placeholder="Ex.: 10 KG">
+        </div>
+        <div>
+          <label class="stock-label">Quant. de pacotes</label>
+          <input class="live-preview" data-preview-target="pv-quantidade" type="text" name="quantidade_pacotes" value="{{ form.quantidade_pacotes }}" placeholder="Ex.: 4">
+        </div>
+      </div>
+      <div class="inline">
+        <div>
+          <label class="stock-label">Data de produção</label>
+          <input class="live-preview" data-preview-target="pv-producao" type="text" name="data_producao" value="{{ form.data_producao }}" placeholder="dd/mm/aaaa">
+        </div>
+        <div>
+          <label class="stock-label">Validade</label>
+          <input class="live-preview" data-preview-target="pv-validade" type="text" name="validade" value="{{ form.validade }}" placeholder="dd/mm/aaaa">
+        </div>
+        <div>
+          <label class="stock-label">Etiqueta</label>
+          <div class="camera-input-row compact">
+            <input id="campo-etiqueta" class="live-preview" data-preview-target="pv-etiqueta" type="text" name="etiqueta" value="{{ form.etiqueta }}" placeholder="Número/texto ou identificação">
+            <button class="btn-secondary camera-scan-btn icon-only" type="button" data-scan-target="campo-etiqueta" data-scan-mode="field" title="Ler etiqueta/QR Code com a câmera">📷</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="background:#f8fafc; box-shadow:none; padding:12px; margin:12px 0;">
+        <label class="stock-label">Tipo do campo etiqueta</label>
+        <div class="inline" style="align-items:center; gap:12px;">
+          <label class="mini" style="display:flex; gap:6px; align-items:center;"><input type="radio" name="etiqueta_tipo" value="texto" {% if form.etiqueta_tipo != 'qrcode' %}checked{% endif %}> Texto normal</label>
+          <label class="mini" style="display:flex; gap:6px; align-items:center;"><input type="radio" name="etiqueta_tipo" value="qrcode" {% if form.etiqueta_tipo == 'qrcode' %}checked{% endif %}> QR Code</label>
+        </div>
+        <p class="mini">Quando escolher QR Code, ao ler com o celular ele mostra os dados do produto: produto, código, peso/embalagem, validade e etiqueta.</p>
+      </div>
+
+      <div class="inline">
+        <div>
+          <label class="stock-label">Largura visual da etiqueta (cm)</label>
+          <input id="preview-width" type="number" step="0.1" min="4" max="30" name="largura_cm" value="{{ form.largura_cm or '10' }}">
+        </div>
+        <div>
+          <label class="stock-label">Altura visual da etiqueta (cm)</label>
+          <input id="preview-height" type="number" step="0.1" min="4" max="40" name="altura_cm" value="{{ form.altura_cm or '15' }}">
+        </div>
+      </div>
+
+      <label class="stock-label">Impressora</label>
+      <select name="impressora">
+        <option value="">Usar impressora padrão do computador</option>
+        {% for impressora in impressoras %}
+          <option value="{{ impressora }}" {% if form.impressora == impressora %}selected{% endif %}>{{ impressora }}</option>
+        {% endfor %}
+      </select>
+      {% if not impressoras %}
+        <p class="mini">Nenhuma impressora foi encontrada pelo sistema. Confira se a impressora está instalada no Windows/CUPS deste computador ou use o botão de baixar Excel.</p>
+      {% endif %}
+      <div class="stock-search-actions" style="margin-top:14px;">
+        <button class="btn-secondary" type="submit" name="action" value="visualizar">Atualizar prévia</button>
+        <button type="submit" name="action" value="imprimir">Imprimir agora</button>
+        <button class="btn-secondary" type="submit" name="action" value="baixar">Baixar Excel preenchido</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="wrap" style="margin-top:16px;">
+  <div class="card">
+    <h2 class="section-title">Prévia antes de imprimir</h2>
+    <p class="muted">Edite os campos acima e veja aqui uma simulação do tamanho. A impressão real ainda depende da configuração de papel/margens da impressora.</p>
+    <div class="label-preview-stage">
+      <div id="label-preview-box" class="label-preview-box">
+        <div class="label-top">
+          <div class="label-cell label-main">
+            <span class="label-title">PRODUTO</span>
+            <strong id="pv-produto">{{ form.produto or '-' }}</strong>
+          </div>
+          <div class="label-cell label-side">
+            <span class="label-title">PESO</span>
+            <strong id="pv-peso">{{ form.peso or '-' }}</strong>
+          </div>
+        </div>
+        <div class="label-mid">
+          <div class="label-cell"><span class="label-title">DATA DE PRODUÇÃO</span><strong id="pv-producao">{{ form.data_producao or '-' }}</strong></div>
+          <div class="label-cell"><span class="label-title">VALIDADE</span><strong id="pv-validade">{{ form.validade or '-' }}</strong></div>
+          <div class="label-cell label-qr-cell">
+            <span class="label-title">ETIQUETA</span>
+            <strong id="pv-etiqueta-text" {% if form.etiqueta_tipo == 'qrcode' %}style="display:none;"{% endif %}>{{ form.etiqueta or '-' }}</strong>
+            <div id="pv-qrcode" class="fake-qrcode" {% if form.etiqueta_tipo != 'qrcode' %}style="display:none;"{% endif %} title="QR Code de prévia">
+              <span></span><span></span><span></span><small>QR</small>
+            </div>
+          </div>
+        </div>
+        <div class="label-bottom">
+          <div class="label-cell"><span class="label-title">QUANT. DE PACOTES</span><strong id="pv-quantidade">{{ form.quantidade_pacotes or '-' }}</strong></div>
+          <div class="label-cell"><span class="label-title">CÓDIGO</span><strong id="pv-codigo">{{ form.codigo or '-' }}</strong></div>
+        </div>
+      </div>
+    </div>
+    <p class="mini" id="label-size-info"></p>
+    {% if form.etiqueta_tipo == 'qrcode' %}
+      <div class="card" style="box-shadow:none; background:#f8fafc; padding:10px; margin-top:10px;">
+        <strong>Conteúdo que será mostrado no celular:</strong>
+        <pre style="white-space:pre-wrap; margin:8px 0 0;">{{ qr_preview_text }}</pre>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="wrap" style="margin-top:16px;">
+  <div class="card">
+    <h2 class="section-title">Configuração de impressora</h2>
+    <p class="muted">O botão abaixo procura as impressoras instaladas, USB, compartilhadas ou de rede que o sistema operacional consegue enxergar. No navegador não dá para parear Bluetooth direto; primeiro conecte/instale no Windows e depois ela aparecerá aqui.</p>
+    <form method="post" action="{{ url_for('impressao_rapida_config') }}">
+      <label class="stock-label">Impressora padrão para impressão rápida</label>
+      <select name="impressora_padrao">
+        <option value="">Usar padrão do computador</option>
+        {% for impressora in impressoras %}
+          <option value="{{ impressora }}" {% if impressora_padrao == impressora %}selected{% endif %}>{{ impressora }}</option>
+        {% endfor %}
+      </select>
+      <div class="stock-search-actions" style="margin-top:12px;">
+        <button class="btn-secondary" type="submit">Salvar impressora</button>
+        <a class="btn btn-secondary" href="{{ url_for('impressao_rapida') }}">Procurar novamente</a>
+      </div>
+    </form>
+    <div class="printer-list">
+      {% for impressora in impressoras %}
+        <div class="printer-pill">🖨️ {{ impressora }}{% if impressora == impressora_padrao %} <strong>• padrão</strong>{% endif %}</div>
+      {% else %}
+        <div class="printer-pill">Nenhuma impressora encontrada neste ambiente {{ servidor_sistema }}.</div>
+      {% endfor %}
+    </div>
+  </div>
+</div></section>
+
+<div id="camera-scanner-modal" class="scanner-modal" hidden>
+  <div class="scanner-card">
+    <div class="scanner-head">
+      <strong>Ler com câmera</strong>
+      <button type="button" class="btn-secondary" id="scanner-close-btn">Fechar</button>
+    </div>
+    <p class="mini" id="scanner-help-text">Aponte a câmera para o código de barras ou QR Code.</p>
+    <video id="scanner-video" playsinline muted></video>
+    <canvas id="scanner-canvas" hidden></canvas>
+    <div class="scanner-actions">
+      <button type="button" class="btn-secondary" id="scanner-switch-btn">Trocar câmera</button>
+      <button type="button" class="btn-secondary" id="scanner-manual-btn">Usar digitação manual</button>
+    </div>
+    <p class="mini scanner-status" id="scanner-status">Iniciando câmera...</p>
+  </div>
+</div>
+
+<script>
+(function(){
+  const box = document.getElementById('label-preview-box');
+  const wInput = document.getElementById('preview-width');
+  const hInput = document.getElementById('preview-height');
+  const info = document.getElementById('label-size-info');
+  const cmToPx = 26;
+  function valueOrDash(v){ return (v || '').trim() || '-'; }
+  function updateSize(){
+    const w = Math.max(4, Math.min(30, parseFloat(wInput.value || '10')));
+    const h = Math.max(4, Math.min(40, parseFloat(hInput.value || '15')));
+    box.style.width = (w * cmToPx) + 'px';
+    box.style.minHeight = (h * cmToPx) + 'px';
+    info.textContent = 'Prévia aproximada: ' + w.toFixed(1).replace('.', ',') + ' cm x ' + h.toFixed(1).replace('.', ',') + ' cm';
+  }
+  document.querySelectorAll('.live-preview').forEach(input => {
+    input.addEventListener('input', () => {
+      const targetId = input.dataset.previewTarget;
+      const el = document.getElementById(targetId);
+      if (el) el.textContent = valueOrDash(input.value);
+      if (targetId === 'pv-etiqueta') {
+        const et = document.getElementById('pv-etiqueta-text');
+        if (et) et.textContent = valueOrDash(input.value);
+      }
+    });
+  });
+  document.querySelectorAll('input[name="etiqueta_tipo"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      const isQr = document.querySelector('input[name="etiqueta_tipo"]:checked')?.value === 'qrcode';
+      document.getElementById('pv-qrcode').style.display = isQr ? 'grid' : 'none';
+      document.getElementById('pv-etiqueta-text').style.display = isQr ? 'none' : 'block';
+    });
+  });
+  [wInput, hInput].forEach(el => el && el.addEventListener('input', updateSize));
+  updateSize();
+
+  // Leitor por câmera para QR Code e código de barras.
+  const scannerModal = document.getElementById('camera-scanner-modal');
+  const scannerVideo = document.getElementById('scanner-video');
+  const scannerCanvas = document.getElementById('scanner-canvas');
+  const scannerStatus = document.getElementById('scanner-status');
+  const scannerClose = document.getElementById('scanner-close-btn');
+  const scannerSwitch = document.getElementById('scanner-switch-btn');
+  const scannerManual = document.getElementById('scanner-manual-btn');
+  const scannerHelp = document.getElementById('scanner-help-text');
+  let scannerStream = null;
+  let scannerDetector = null;
+  let scannerRunning = false;
+  let scannerFacing = 'environment';
+  let scannerTarget = null;
+  let scannerMode = 'search';
+
+  function parseScannedCode(raw){
+    const text = String(raw || '').trim();
+    if (!text) return '';
+    const lines = text.split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+    const codeLine = lines.find(l => /^c[oó]digo\s*:/i.test(l));
+    if (codeLine) return codeLine.replace(/^c[oó]digo\s*:/i, '').trim();
+    const barcodeLine = lines.find(l => /c[oó]digo\s*de\s*barras\s*:/i.test(l));
+    if (barcodeLine) return barcodeLine.replace(/.*?:/i, '').trim();
+    const onlyDigits = text.match(/\b\d{6,14}\b/);
+    if (onlyDigits) return onlyDigits[0];
+    return text;
+  }
+  function dispatchInput(el){
+    el.dispatchEvent(new Event('input', {bubbles:true}));
+    el.dispatchEvent(new Event('change', {bubbles:true}));
+  }
+  function stopScanner(){
+    scannerRunning = false;
+    if (scannerStream) {
+      scannerStream.getTracks().forEach(t => t.stop());
+      scannerStream = null;
+    }
+    if (scannerVideo) scannerVideo.srcObject = null;
+    scannerModal.hidden = true;
+  }
+  async function startScanner(targetId, mode){
+    scannerTarget = document.getElementById(targetId);
+    scannerMode = mode || 'field';
+    if (!scannerTarget) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      alert('Este navegador não liberou acesso à câmera. Tente no Chrome/Edge pelo celular ou digite manualmente.');
+      return;
+    }
+    scannerModal.hidden = false;
+    scannerHelp.textContent = scannerMode === 'search'
+      ? 'Aponte para o código de barras/QR Code. Assim que ler, o sistema busca no estoque.'
+      : 'Aponte para o código. Assim que ler, o campo será preenchido.';
+    scannerStatus.textContent = 'Abrindo câmera...';
+    try {
+      stopScanner();
+      scannerModal.hidden = false;
+      scannerStream = await navigator.mediaDevices.getUserMedia({video:{facingMode: scannerFacing}, audio:false});
+      scannerVideo.srcObject = scannerStream;
+      await scannerVideo.play();
+      scannerRunning = true;
+      if ('BarcodeDetector' in window) {
+        scannerDetector = new BarcodeDetector({formats:['qr_code','ean_13','ean_8','code_128','code_39','itf','upc_a','upc_e']});
+        scannerStatus.textContent = 'Câmera ativa. Aproxime o código da tela.';
+        requestAnimationFrame(scanFrame);
+      } else {
+        scannerStatus.textContent = 'Seu navegador abriu a câmera, mas não tem leitor nativo de código. Use Chrome/Edge atualizado no Android ou digite manualmente.';
+      }
+    } catch (err) {
+      scannerStatus.textContent = 'Não consegui abrir a câmera: ' + (err && err.message ? err.message : err);
+    }
+  }
+  async function scanFrame(){
+    if (!scannerRunning || !scannerDetector) return;
+    try {
+      const codes = await scannerDetector.detect(scannerVideo);
+      if (codes && codes.length) {
+        const raw = codes[0].rawValue || '';
+        const parsed = parseScannedCode(raw);
+        if (parsed) {
+          scannerTarget.value = parsed;
+          dispatchInput(scannerTarget);
+          const formBusca = document.getElementById('form-busca-estoque');
+          stopScanner();
+          if (scannerMode === 'search' && formBusca) formBusca.submit();
+          return;
+        }
+      }
+    } catch (err) {
+      // continua tentando; alguns frames podem falhar dependendo do foco da câmera.
+    }
+    if (scannerRunning) requestAnimationFrame(scanFrame);
+  }
+  document.querySelectorAll('.camera-scan-btn').forEach(btn => {
+    btn.addEventListener('click', () => startScanner(btn.dataset.scanTarget, btn.dataset.scanMode));
+  });
+  scannerClose?.addEventListener('click', stopScanner);
+  scannerManual?.addEventListener('click', stopScanner);
+  scannerSwitch?.addEventListener('click', () => {
+    scannerFacing = scannerFacing === 'environment' ? 'user' : 'environment';
+    if (scannerTarget) startScanner(scannerTarget.id, scannerMode);
+  });
+  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && scannerModal && !scannerModal.hidden) stopScanner(); });
+
+})();
+</script>
+{% endblock %}

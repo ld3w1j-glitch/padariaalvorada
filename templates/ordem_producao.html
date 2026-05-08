@@ -1,0 +1,88 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="main"><div class="wrap">
+  <div class="card">
+    <div class="toolbar">
+      <div>
+        <h1 class="section-title">Ordem de produção #{{ ordem.id }}</h1>
+        <div class="mini">{{ ordem.titulo }} • {{ ordem.store_nome or 'Sem loja específica' }} • Criada em {{ ordem.criado_em }}</div>
+      </div>
+      <div class="compact-form">
+        <a class="btn btn-secondary" href="{{ url_for('receitas') }}">Voltar para receitas</a>
+        <form method="post" action="{{ url_for('remover_ordem_producao', order_id=ordem.id) }}" onsubmit="return confirm('Remover esta ordem de produção? Ela deixará de aparecer no histórico CSV, mas a remoção ficará registrada na auditoria.');">
+          <button class="btn-danger" type="submit">Remover ordem</button>
+        </form>
+      </div>
+    </div>
+    {% if ordem.observacao %}<p class="muted"><strong>Observação:</strong> {{ ordem.observacao }}</p>{% endif %}
+    <p><span class="{{ status_class(ordem.status) }}">{{ ordem.status }}</span></p>
+  </div>
+
+  <div class="grid-2" style="margin-top:16px;">
+    <div class="card">
+      <h2 class="section-title">Relatório para preparo</h2>
+      <p class="muted">Quantidade total de ingredientes calculada pelo pedido da loja.</p>
+      <div class="table-responsive"><table>
+        <thead><tr><th>Código</th><th>Ingrediente</th><th>Qtd. necessária</th></tr></thead>
+        <tbody>
+        {% for ing in ingredientes %}
+          <tr><td>{{ ing.codigo }}</td><td>{{ ing.descricao }}</td><td><strong>{{ fmt_num(ing.quantidade_total) }} {{ ing.unidade }}</strong></td></tr>
+        {% else %}
+          <tr><td colspan="3" class="empty">A receita não possui ingredientes vinculados.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="card">
+      <h2 class="section-title">Conferência da produção</h2>
+      <p class="muted">O padeiro registra quanto já foi produzido. O histórico fica salvo para relatório mensal.</p>
+      {% for item in itens %}
+      <article class="stock-history-item" style="margin-bottom:10px;">
+        <div class="stock-history-main">
+          <div class="stock-history-top">
+            <strong>{{ item.descricao }}</strong>
+            <span class="stock-history-badge">{{ fmt_num(item.quantidade_produzida) }} / {{ fmt_num(item.quantidade_pedida) }}</span>
+          </div>
+          <div class="mini">Código {{ item.codigo }} • Status: {{ item.status }}</div>
+          <form method="post" class="compact-form" style="margin-top:8px;">
+            <input type="hidden" name="acao" value="atualizar_item">
+            <input type="hidden" name="item_id" value="{{ item.id }}">
+            <input type="text" name="quantidade_produzida" value="{{ fmt_num(item.quantidade_produzida) }}" placeholder="Qtd. produzida" required>
+            <input type="text" name="observacao" placeholder="Observação opcional">
+            <button class="btn-secondary" type="submit">Registrar</button>
+          </form>
+        </div>
+      </article>
+      {% endfor %}
+      {% if ordem.status not in ['FINALIZADA'] %}
+      <form method="post">
+        <input type="hidden" name="acao" value="fechar_ordem">
+        <button type="submit">Finalizar ordem</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px;">
+    <h2 class="section-title">Histórico desta ordem</h2>
+    <div class="table-responsive"><table>
+      <thead><tr><th>Quando</th><th>Usuário</th><th>Ação</th><th>Item</th><th>Qtd.</th><th>Obs.</th></tr></thead>
+      <tbody>
+      {% for log in logs %}
+        <tr>
+          <td>{{ log.criado_em }}</td>
+          <td>{{ log.usuario_nome or 'Sistema' }}</td>
+          <td>{{ log.action }}</td>
+          <td>{{ log.item_descricao or '-' }}</td>
+          <td>{{ fmt_num(log.quantidade) if log.quantidade is not none else '-' }}</td>
+          <td>{{ log.observacao or '-' }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="empty">Nenhum registro ainda.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+  </div>
+</div></section>
+{% endblock %}

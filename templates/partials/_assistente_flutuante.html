@@ -1,0 +1,378 @@
+<div class="floating-ai" id="floating-ai" data-context="{{ request.endpoint or 'mcp_teste' }}" data-user-store="{{ g.user.store_nome if g.user and g.user.store_nome else '' }}">
+  <button type="button" class="floating-ai-button sun-ai-button" id="floating-ai-toggle" title="IA Alvorada"><img src="{{ url_for('static', filename='img/ia_sun_mascot.png') }}" alt="IA Alvorada"><span>IA</span></button>
+  <section class="floating-ai-panel" id="floating-ai-panel" aria-live="polite">
+    <div class="floating-ai-head">
+      <div>
+        <strong>Assistente MCP/IA</strong>
+        <span>Chat inteligente do sistema</span>
+      </div>
+      <button type="button" id="floating-ai-close">×</button>
+    </div>
+    <div class="floating-ai-body">
+      <div class="floating-ai-help">Converse normalmente. Ex.: “tenho um problema na loja”, “consultar produto 123” ou “calcule 10+20”.</div>
+      <div class="floating-ai-chat" id="floating-ai-chat">
+        <div class="floating-ai-msg bot">Bom dia! Pode conversar comigo normalmente. Eu também calculo e consulto o sistema.</div>
+      </div>
+      <div class="floating-ai-compose">
+        <div class="floating-ai-attach-row" id="floating-ai-attach-row"></div>
+        <textarea id="floating-ai-input" rows="2" placeholder="Digite aqui... Ex: problema na loja, mercadoria sem nota, calcule 10+20"></textarea>
+        <div class="floating-ai-compose-actions">
+          <button type="button" class="floating-ai-icon-btn" id="floating-ai-file" title="Importar arquivo">📎</button>
+          <button type="button" class="floating-ai-icon-btn" id="floating-ai-photo" title="Tirar foto">📷</button>
+          <button type="button" class="btn" id="floating-ai-send">Enviar</button>
+        </div>
+        <input id="floating-ai-file-input" type="file" hidden>
+        <input id="floating-ai-photo-input" type="file" accept="image/*" capture="environment" hidden>
+      </div>
+    </div>
+  </section>
+</div>
+<script>
+(function(){
+  const box = document.getElementById('floating-ai');
+  if (!box) return;
+  const toggle = document.getElementById('floating-ai-toggle');
+  const closeBtn = document.getElementById('floating-ai-close');
+  const input = document.getElementById('floating-ai-input');
+  const send = document.getElementById('floating-ai-send');
+  const fileBtn = document.getElementById('floating-ai-file');
+  const photoBtn = document.getElementById('floating-ai-photo');
+  const fileInput = document.getElementById('floating-ai-file-input');
+  const photoInput = document.getElementById('floating-ai-photo-input');
+  const attachRow = document.getElementById('floating-ai-attach-row');
+  const chat = document.getElementById('floating-ai-chat');
+  const suggestions = null;
+
+  const endpointToContext = {
+    dashboard: 'painel', estoque: 'estoque', listar_lotes: 'lotes',
+    detalhe_historico_lote: 'relatorios', relatorios: 'relatorios',
+    relatorio_gerencial: 'relatorios', admin_codigo_fonte: 'mcp_teste'
+  };
+  const ctx = endpointToContext[box.dataset.context] || 'mcp_teste';
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
+  }
+
+  function addMsg(kind, text) {
+    const div = document.createElement('div');
+    div.className = 'floating-ai-msg ' + kind;
+    div.textContent = text;
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+    return div;
+  }
+
+  function setOpen(open){
+    box.classList.toggle('is-open', open);
+    if (open) input.focus();
+  }
+
+  async function loadSuggestions(){ return; }
+  function renderExtra(data) {
+    const table = data.table || {};
+    const rows = table.rows || [];
+    const cols = (table.columns || []).slice(0, 3);
+    if (!rows.length || !cols.length) return '';
+    let html = '<div class="floating-ai-mini-table"><strong>' + escapeHtml(table.title || 'Resultado') + '</strong>';
+    html += '<table><thead><tr>' + cols.map(c => '<th>' + escapeHtml((table.labels || {})[c] || c) + '</th>').join('') + '</tr></thead><tbody>';
+    rows.slice(0, 5).forEach(row => { html += '<tr>' + cols.map(c => '<td>' + escapeHtml(row[c] || '') + '</td>').join('') + '</tr>'; });
+    html += '</tbody></table></div>';
+    return html;
+  }
+
+  let issueWizard = null;
+  let pendingAttachments = [];
+
+
+  function renderAttachments() {
+    if (!attachRow) return;
+    if (!pendingAttachments.length) { attachRow.innerHTML = ''; return; }
+    attachRow.innerHTML = pendingAttachments.map((a, idx) =>
+      '<span class="floating-ai-attachment">' + escapeHtml(a.nome || 'arquivo') + '<button type="button" data-remove="' + idx + '">×</button></span>'
+    ).join('');
+    attachRow.querySelectorAll('[data-remove]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        pendingAttachments.splice(Number(btn.dataset.remove), 1);
+        renderAttachments();
+      });
+    });
+  }
+
+  async function uploadAttachment(file) {
+    if (!file) return;
+    const form = new FormData();
+    form.append('arquivo', file);
+    const uploading = addMsg('bot typing', 'Anexando arquivo...');
+    try {
+      const resp = await fetch('{{ url_for('api_mcp_anexar_temp') }}', {method: 'POST', body: form});
+      const data = await resp.json();
+      uploading.remove();
+      if (!resp.ok) throw new Error(data.error || 'Não foi possível anexar.');
+      pendingAttachments.push({nome: data.nome, url: data.url, path: data.path});
+      renderAttachments();
+      addMsg('bot', 'Arquivo anexado temporariamente: ' + data.nome + '. Ele será enviado junto se você finalizar uma ocorrência.');
+    } catch(err) {
+      uploading.remove();
+      addMsg('bot', 'Erro no anexo: ' + (err.message || err));
+    }
+  }
+
+  function wantsIssueFlow(text) {
+    const t = String(text || '').toLowerCase();
+    return ['problema', 'ocorrência', 'ocorrencia', 'mercadoria sem nota', 'nota sem mercadoria', 'faltando', 'passando', 'enviar para'].some(k => t.includes(k));
+  }
+
+  function startIssueWizard(initialText) {
+    issueWizard = {
+      step: 'destino',
+      tipo: '',
+      destino: '',
+      loja: (box.dataset.userStore || ''),
+      nota_numero: '',
+      relato: initialText || '',
+      itens: [],
+      anexos: pendingAttachments.slice(),
+      itemAtual: {}
+    };
+    const origem = issueWizard.loja ? ` Sua origem cadastrada é ${issueWizard.loja}.` : '';
+    addMsg('bot', 'Vamos registrar uma ocorrência e enviar para o usuário correto.' + origem + ' Para quem devo enviar? Digite o nome do usuário de destino.');
+  }
+
+  function issueResumo() {
+    const tipoLabel = issueWizard.tipo === 'mercadoria_sem_nota' ? 'Mercadoria sem nota'
+      : issueWizard.tipo === 'nota_sem_mercadoria' ? 'Nota chegou, mas mercadoria faltou/passou'
+      : 'Outro problema';
+    const itens = issueWizard.itens.length
+      ? issueWizard.itens.map((i, idx) => `${idx+1}. ${i.codigo || i.codigo_barras || '-'} | ${i.descricao || '-'} | ${i.sinal || ''}${i.quantidade || i.diferenca || '-'}`).join('\n')
+      : 'Nenhum item informado';
+    const anexos = issueWizard.anexos && issueWizard.anexos.length ? issueWizard.anexos.map(a => a.nome || 'arquivo').join(', ') : 'Nenhum';
+    return `Destino: ${issueWizard.destino}\nTipo: ${tipoLabel}\nLoja: ${issueWizard.loja || '-'}\nNota: ${issueWizard.nota_numero || '-'}\nRelato: ${issueWizard.relato || '-'}\nAnexos: ${anexos}\nItens:\n${itens}`;
+  }
+
+  async function finalizarIssueWizard() {
+    const payload = {
+      tipo: issueWizard.tipo,
+      destino: issueWizard.destino,
+      loja: issueWizard.loja,
+      nota_numero: issueWizard.nota_numero,
+      relato: issueWizard.relato,
+      itens: issueWizard.itens,
+      anexos: issueWizard.anexos || []
+    };
+    const resp = await fetch('{{ url_for('api_mcp_registrar_ocorrencia') }}', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Não foi possível registrar a ocorrência.');
+    addMsg('bot', data.mensagem || 'Ocorrência enviada.');
+    pendingAttachments = [];
+    renderAttachments();
+    if (data.redirect_url) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = 'Abrir conversa enviada';
+      btn.className = 'btn';
+      btn.addEventListener('click', () => { window.location.href = data.redirect_url; });
+      const last = chat.lastElementChild;
+      if (last) last.appendChild(btn);
+    }
+    issueWizard = null;
+  }
+
+  async function handleIssueWizard(text) {
+    const msg = String(text || '').trim();
+    if (!issueWizard) return false;
+
+    if (['cancelar', 'sair', 'parar'].includes(msg.toLowerCase())) {
+      issueWizard = null;
+      addMsg('bot', 'Registro cancelado.');
+      return true;
+    }
+
+    if (issueWizard.step === 'destino') {
+      issueWizard.destino = msg;
+      issueWizard.step = 'tipo';
+      addMsg('bot', 'Qual é o tipo do problema? Responda: 1 para mercadoria sem nota, 2 para nota chegou mas mercadoria faltou/passou, ou 3 para outro.');
+      return true;
+    }
+
+    if (issueWizard.step === 'tipo') {
+      const t = msg.toLowerCase();
+      if (t === '1' || t.includes('mercadoria sem nota')) issueWizard.tipo = 'mercadoria_sem_nota';
+      else if (t === '2' || t.includes('nota') || t.includes('faltou') || t.includes('passou')) issueWizard.tipo = 'nota_sem_mercadoria';
+      else issueWizard.tipo = 'outro';
+      if (issueWizard.loja) {
+        if (issueWizard.tipo === 'nota_sem_mercadoria') {
+          issueWizard.step = 'nota';
+          addMsg('bot', 'Vou usar sua origem cadastrada: ' + issueWizard.loja + '. Informe o número da nota.');
+        } else if (issueWizard.tipo === 'outro') {
+          issueWizard.step = 'relato';
+          addMsg('bot', 'Vou usar sua origem cadastrada: ' + issueWizard.loja + '. Descreva o problema com detalhes.');
+        } else {
+          issueWizard.step = 'item_codigo';
+          addMsg('bot', 'Vou usar sua origem cadastrada: ' + issueWizard.loja + '. Informe o código do produto ou código de barras da mercadoria que chegou sem nota.');
+        }
+      } else {
+        issueWizard.step = 'loja';
+        addMsg('bot', 'De qual loja é essa ocorrência?');
+      }
+      return true;
+    }
+
+    if (issueWizard.step === 'loja') {
+      issueWizard.loja = msg;
+      if (issueWizard.tipo === 'nota_sem_mercadoria') {
+        issueWizard.step = 'nota';
+        addMsg('bot', 'Informe o número da nota.');
+      } else if (issueWizard.tipo === 'outro') {
+        issueWizard.step = 'relato';
+        addMsg('bot', 'Descreva o problema com detalhes.');
+      } else {
+        issueWizard.step = 'item_codigo';
+        addMsg('bot', 'Informe o código do produto ou código de barras da mercadoria que chegou sem nota.');
+      }
+      return true;
+    }
+
+    if (issueWizard.step === 'nota') {
+      issueWizard.nota_numero = msg;
+      issueWizard.step = 'item_codigo';
+      addMsg('bot', 'Informe o código do produto ou código de barras da mercadoria da nota.');
+      return true;
+    }
+
+    if (issueWizard.step === 'relato') {
+      issueWizard.relato = msg;
+      issueWizard.step = 'confirmar';
+      addMsg('bot', 'Confere se está certo?\n' + issueResumo() + '\n\nResponda SIM para enviar ou NÃO para cancelar.');
+      return true;
+    }
+
+    if (issueWizard.step === 'item_codigo') {
+      issueWizard.itemAtual = {codigo: msg};
+      issueWizard.step = 'item_descricao';
+      addMsg('bot', 'Qual é a descrição da mercadoria?');
+      return true;
+    }
+
+    if (issueWizard.step === 'item_descricao') {
+      issueWizard.itemAtual.descricao = msg;
+      issueWizard.step = 'item_quantidade';
+      if (issueWizard.tipo === 'nota_sem_mercadoria') {
+        addMsg('bot', 'Informe a quantidade e o sinal: use - para faltando ou + para passando. Ex: -3 ou +2.');
+      } else {
+        addMsg('bot', 'Informe a quantidade.');
+      }
+      return true;
+    }
+
+    if (issueWizard.step === 'item_quantidade') {
+      let qtd = msg.replace(',', '.');
+      if (issueWizard.tipo === 'nota_sem_mercadoria') {
+        issueWizard.itemAtual.sinal = qtd.trim().startsWith('-') ? '-' : '+';
+        issueWizard.itemAtual.quantidade = qtd.replace(/^[-+]/, '');
+      } else {
+        issueWizard.itemAtual.quantidade = qtd;
+      }
+      issueWizard.itens.push(issueWizard.itemAtual);
+      issueWizard.itemAtual = {};
+      issueWizard.step = 'mais_item';
+      addMsg('bot', 'Item registrado. Deseja registrar outro item? Responda SIM ou NÃO.');
+      return true;
+    }
+
+    if (issueWizard.step === 'mais_item') {
+      if (msg.toLowerCase().startsWith('s')) {
+        issueWizard.step = 'item_codigo';
+        addMsg('bot', 'Informe o código do próximo produto ou código de barras.');
+      } else {
+        issueWizard.step = 'confirmar';
+        addMsg('bot', 'Confere se é isso mesmo?\n' + issueResumo() + '\n\nResponda SIM para enviar ao usuário de destino ou NÃO para cancelar.');
+      }
+      return true;
+    }
+
+    if (issueWizard.step === 'confirmar') {
+      if (msg.toLowerCase().startsWith('s')) {
+        try { await finalizarIssueWizard(); }
+        catch(err) { addMsg('bot', 'Não consegui enviar: ' + (err.message || err)); }
+      } else {
+        issueWizard = null;
+        addMsg('bot', 'Registro cancelado.');
+      }
+      return true;
+    }
+
+    return false;
+  }
+
+  async function ask(){
+    const mensagem = input.value.trim();
+    if (!mensagem) return;
+    addMsg('user', mensagem);
+    input.value = '';
+    if (issueWizard) { await handleIssueWizard(mensagem); return; }
+    if (wantsIssueFlow(mensagem)) { startIssueWizard(mensagem); return; }
+    const loading = addMsg('bot typing', 'Digitando...');
+    try {
+      const resp = await fetch('{{ url_for('api_ia_responder') }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({mensagem})
+      });
+      const data = await resp.json();
+      loading.remove();
+      const bot = addMsg('bot', data.resposta || data.answer || 'Pronto.');
+      const extra = renderExtra(data);
+      if (extra) bot.insertAdjacentHTML('beforeend', extra);
+      if (data.acoes_sugeridas && data.acoes_sugeridas.length) {
+        const actions = document.createElement('div');
+        actions.className = 'floating-ai-actions';
+        actions.innerHTML = data.acoes_sugeridas.slice(0,3).map(a => '<button type="button" data-action="' + escapeHtml(a.type) + '">' + escapeHtml(a.label) + '</button>').join('');
+        bot.appendChild(actions);
+        actions.querySelectorAll('[data-action]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            async function executar(password) {
+              const r = await fetch('{{ url_for('api_mcp_executar_acao') }}', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({contexto: ctx, action_type: btn.dataset.action, pergunta: mensagem, filtros: {limite: 30}, password: password || ''})
+              });
+              const d = await r.json();
+              if (d.requires_password) {
+                const senha = window.prompt('Essa ação é sensível. Digite sua senha para confirmar:');
+                if (!senha) return;
+                return executar(senha);
+              }
+              if (!r.ok) throw new Error(d.error || 'Não foi possível executar.');
+              addMsg('bot', d.mensagem || 'Ação executada.');
+              if (d.redirect_url) window.location.href = d.redirect_url;
+            }
+            try { await executar(''); } catch(err) { addMsg('bot', err.message || String(err)); }
+          });
+        });
+      }
+    } catch(err) {
+      loading.remove();
+      addMsg('bot', 'Não consegui responder agora: ' + (err.message || err));
+    }
+  }
+
+  toggle.addEventListener('click', () => setOpen(!box.classList.contains('is-open')));
+  closeBtn.addEventListener('click', () => setOpen(false));
+  send.addEventListener('click', ask);
+  if (fileBtn && fileInput) fileBtn.addEventListener('click', () => fileInput.click());
+  if (photoBtn && photoInput) photoBtn.addEventListener('click', () => photoInput.click());
+  if (fileInput) fileInput.addEventListener('change', () => { uploadAttachment(fileInput.files[0]); fileInput.value = ''; });
+  if (photoInput) photoInput.addEventListener('change', () => { uploadAttachment(photoInput.files[0]); photoInput.value = ''; });
+  input.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter' && !ev.shiftKey) {
+      ev.preventDefault();
+      ask();
+    }
+  });
+  loadSuggestions();
+})();
+</script>

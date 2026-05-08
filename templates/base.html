@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title or 'Controle de Separação' }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+  <meta name="theme-color" content="#2f6b2f">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Alvorada">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}?v=8">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='img/favicon-32.png') }}?v=8">
+  <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='img/favicon-16.png') }}?v=8">
+  <link rel="shortcut icon" href="{{ url_for('static', filename='img/favicon.ico') }}?v=8">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='img/apple-touch-icon.png') }}?v=8">
+</head>
+<body>
+  <div id="page-loading-overlay" class="page-loading-overlay" aria-hidden="true">
+    <div class="page-loading-card">
+      <img src="{{ url_for('static', filename='img/apple-touch-icon.png') }}?v=8" alt="Alvorada" class="page-loading-logo">
+      <span>Carregando...</span>
+    </div>
+  </div>
+  {% if g.user %}
+    {% include 'partials/_topbar.html' %}
+    {% if g.maintenance_mode and user_is_admin(g.user) %}
+      <div class="maintenance-admin-banner">Modo manutenção ativo: usuários comuns verão a página de manutenção.</div>
+    {% endif %}
+  {% endif %}
+
+  <div class="wrap flash-wrap">
+    {% include 'partials/_flash.html' %}
+  </div>
+
+  {% block content %}{% endblock %}
+
+  {% if g.user and user_has_access(g.user, 'mcp_teste') and request.endpoint not in ['login', 'mcp_teste'] %}
+    {% include 'partials/_assistente_flutuante.html' %}
+  {% endif %}
+
+  <script>
+    async function alvoradaRunAgenteInField(field) {
+      if (!field || !field.value || !field.value.trim().toLowerCase().startsWith('/agente')) return false;
+      const original = field.value.trim();
+      field.disabled = true;
+      const oldPlaceholder = field.placeholder || '';
+      field.placeholder = 'IA offline trabalhando...';
+      try {
+        const resp = await fetch('{{ url_for('api_agente_executar') }}', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({texto: original})
+        });
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) throw new Error(data.erro || 'Não foi possível executar o agente.');
+        field.value = data.resposta || '';
+        field.dispatchEvent(new Event('input', {bubbles: true}));
+        return true;
+      } catch (err) {
+        alert(err.message || err);
+        return false;
+      } finally {
+        field.disabled = false;
+        field.placeholder = oldPlaceholder;
+        try { field.focus(); } catch (e) {}
+      }
+    }
+
+    document.addEventListener('keydown', async (ev) => {
+      const field = ev.target;
+      if (!(field instanceof HTMLTextAreaElement || field instanceof HTMLInputElement)) return;
+      if ((ev.ctrlKey || ev.metaKey) && ev.key === 'Enter' && field.value && field.value.trim().toLowerCase().startsWith('/agente')) {
+        ev.preventDefault();
+        await alvoradaRunAgenteInField(field);
+      }
+    });
+
+    document.addEventListener('submit', async (ev) => {
+      const form = ev.target;
+      if (!(form instanceof HTMLFormElement) || form.dataset.agenteProcessed === '1' || form.classList.contains('wa-chat-form')) return;
+      const field = Array.from(form.querySelectorAll('textarea, input[type="text"], input:not([type])')).find((el) => el.value && el.value.trim().toLowerCase().startsWith('/agente'));
+      if (!field) return;
+      ev.preventDefault();
+      const ok = await alvoradaRunAgenteInField(field);
+      if (ok) {
+        form.dataset.agenteProcessed = '1';
+        form.requestSubmit();
+      }
+    }, true);
+  </script>
+
+  <script src="{{ url_for('static', filename='js/pwa-loading.js') }}?v=8"></script>
+</body>
+</html>

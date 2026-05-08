@@ -1,0 +1,211 @@
+{% extends 'base.html' %}
+{% block content %}
+<style>
+@media (max-width: 760px){
+  .grid-2{grid-template-columns:1fr!important;}
+  .card form .card, .card{max-width:100%; overflow:hidden;}
+  .card form div[style*="grid-template-columns:repeat(2"]{grid-template-columns:1fr!important;}
+  .user-access-grid{grid-template-columns:1fr!important;}
+}
+</style>
+<section class="main"><div class="wrap grid-2">
+  <div class="card">
+    <h1 class="section-title">Novo usuário</h1>
+    <form method="post">
+      <input type="text" name="nome" placeholder="Nome" required>
+      <input type="text" name="username" placeholder="Login" required>
+      <input type="password" name="password" placeholder="Senha" required>
+
+      <select name="store_id">
+        <option value="">Origem do usuário: sem vínculo</option>
+        {% for loja in lojas %}
+          <option value="{{ loja.id }}">{{ loja.nome }}</option>
+        {% endfor %}
+      </select>
+      <div class="mini" style="margin:-6px 0 10px;">Use aqui para definir se o usuário pertence a uma das 21 lojas ou ao CD.</div>
+
+      <select name="role" class="js-role-select" required>
+        {% for role_key, role_name in role_options %}
+          <option value="{{ role_key }}">{{ role_name }}</option>
+        {% endfor %}
+      </select>
+
+      <input type="hidden" name="permission_level" value="comum">
+      <div class="mini" style="margin-bottom:8px;">
+        Cargo não marca acessos automaticamente. Marque abaixo exatamente o que este usuário pode acessar.
+        Somente o cargo Admin libera Usuários, Configurações, Código fonte e Auditoria.
+        Separador e Conferente não podem acessar Relatórios.
+      </div>
+      <div class="actions-cell" style="margin-bottom:10px; display:flex; gap:8px; flex-wrap:wrap;">
+        <button type="button" class="btn-secondary js-apply-role-default">Aplicar padrão do cargo</button>
+        <button type="button" class="btn-secondary js-check-operational">Marcar todos operacionais</button>
+        <button type="button" class="btn-secondary js-clear-access">Limpar acessos</button>
+      </div>
+
+      <div class="mini" style="margin-bottom:8px;">Acessos liberados</div>
+      <div class="user-access-grid js-access-grid" style="display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-bottom:14px;">
+        {% for access_key, access_label in access_options %}
+        <label class="check-line" style="margin:0;">
+          <input type="checkbox" name="access_rules" value="{{ access_key }}" {% if access_key in ['painel', 'separacoes'] %}checked{% endif %}>
+          {{ access_label }}
+        </label>
+        {% endfor %}
+      </div>
+
+      <button type="submit">Salvar usuário</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2 class="section-title">Cadastrados</h2>
+    <div style="display:grid; gap:14px;">
+      {% for user in users %}
+      <form method="post" action="{{ url_for('salvar_usuario', user_id=user.id) }}" class="card" style="padding:16px; background:#faf7f2; border:1px solid #eadfce;">
+        <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap; margin-bottom:12px;">
+          <div>
+            <strong>{{ user.nome }}</strong>
+            <div class="mini">Login: {{ user.username }}</div>
+            <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px;">
+              <span class="{{ role_badge(user.role) }}">{{ role_label(user.role) }}</span>
+              <span class="badge">{{ permission_level_label(user.permission_level, user.role) }}</span>
+              <span class="badge">{{ 'Ativo' if user.ativo else 'Inativo' }}</span>
+              <span class="badge">Origem: {{ user.store_nome or 'Sem vínculo' }}</span>
+            </div>
+          </div>
+          <div class="mini">Acessos: {{ access_labels_for_user(user)|join(', ') }}</div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px;">
+          <input type="text" name="nome" value="{{ user.nome }}" placeholder="Nome" required>
+          <input type="text" name="username" value="{{ user.username }}" placeholder="Login" required>
+
+          <select name="store_id">
+            <option value="">Origem: sem vínculo</option>
+            {% for loja in lojas %}
+              <option value="{{ loja.id }}" {% if user.store_id == loja.id %}selected{% endif %}>{{ loja.nome }}</option>
+            {% endfor %}
+          </select>
+
+          <select name="role" class="js-role-select" required>
+            {% for role_key, role_name in role_options %}
+              <option value="{{ role_key }}" {% if user.role == role_key %}selected{% endif %}>{{ role_name }}</option>
+            {% endfor %}
+          </select>
+
+          <input type="hidden" name="permission_level" value="comum">
+          <div class="mini" style="align-self:center;">
+            Permissões são controladas manualmente abaixo. Cargo Admin recebe permissão admin automaticamente.
+          </div>
+        </div>
+
+        <div style="margin-top:10px;">
+          <div class="actions-cell" style="margin-bottom:10px; display:flex; gap:8px; flex-wrap:wrap;">
+            <button type="button" class="btn-secondary js-apply-role-default">Aplicar padrão do cargo</button>
+            <button type="button" class="btn-secondary js-check-operational">Marcar todos operacionais</button>
+            <button type="button" class="btn-secondary js-clear-access">Limpar acessos</button>
+          </div>
+          <div class="mini" style="margin-bottom:8px;">Acessos liberados</div>
+          {% set current_access = user_access_set(user) %}
+          <div class="user-access-grid js-access-grid" style="display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px;">
+            {% for access_key, access_label in access_options %}
+            <label class="check-line" style="margin:0;">
+              <input type="checkbox" name="access_rules" value="{{ access_key }}" {% if access_key in current_access %}checked{% endif %}>
+              {{ access_label }}
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+
+        <input type="password" name="nova_senha" placeholder="Nova senha (opcional)" style="margin-top:10px;">
+
+        <div class="actions-cell" style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
+          <button type="submit">Salvar alterações</button>
+        </div>
+      </form>
+
+      <div class="actions-cell" style="margin-top:-6px; margin-bottom:8px; display:flex; gap:8px; flex-wrap:wrap;">
+        <form method="post" action="{{ url_for('alternar_usuario', user_id=user.id) }}">
+          <button class="btn-secondary" type="submit">{{ 'Desativar' if user.ativo else 'Ativar' }}</button>
+        </form>
+        <a class="btn-secondary" href="{{ url_for('historico_usuario', user_id=user.id) }}">Histórico/Estorno</a>
+        <form method="post" action="{{ url_for('excluir_usuario', user_id=user.id) }}" onsubmit="return confirm('Excluir este usuário?');">
+          <button class="btn-danger" type="submit">Excluir</button>
+        </form>
+      </div>
+      {% else %}
+      <div class="empty">Nenhum usuário.</div>
+      {% endfor %}
+    </div>
+  </div>
+</div></section>
+
+<script>
+(function(){
+  const defaultsByRole = {{ default_access_by_role|tojson }};
+  const sensitiveKeys = new Set({{ sensitive_access_keys|tojson }});
+  const noReportRoles = new Set({{ no_report_access_roles|tojson }});
+  const reportAccessKey = {{ report_access_key|tojson }};
+  const allOperationalKeys = {{ operational_access_keys|tojson }};
+
+  document.querySelectorAll('form').forEach(function(form){
+    const roleSelect = form.querySelector('.js-role-select');
+    const grid = form.querySelector('.js-access-grid');
+    if (!roleSelect || !grid) return;
+    const checks = Array.from(grid.querySelectorAll('input[type="checkbox"]'));
+
+    function setKeys(keys){
+      const allowed = new Set(keys || []);
+      checks.forEach(function(check){
+        check.checked = allowed.has(check.value);
+      });
+      syncSensitiveAccess();
+    }
+
+    function syncSensitiveAccess(){
+      const isAdminRole = roleSelect.value === 'admin';
+      const blockReports = noReportRoles.has(roleSelect.value);
+      checks.forEach(function(check){
+        if (sensitiveKeys.has(check.value)) {
+          if (isAdminRole) {
+            check.checked = true;
+            check.disabled = true;
+          } else {
+            check.checked = false;
+            check.disabled = true;
+          }
+        } else if (check.value === reportAccessKey && blockReports) {
+          check.checked = false;
+          check.disabled = true;
+        } else {
+          check.disabled = false;
+        }
+      });
+    }
+
+    const applyDefaultBtn = form.querySelector('.js-apply-role-default');
+    if (applyDefaultBtn) {
+      applyDefaultBtn.addEventListener('click', function(){
+        setKeys(defaultsByRole[roleSelect.value] || ['painel']);
+      });
+    }
+
+    const markOperationalBtn = form.querySelector('.js-check-operational');
+    if (markOperationalBtn) {
+      markOperationalBtn.addEventListener('click', function(){
+        setKeys(allOperationalKeys);
+      });
+    }
+
+    const clearBtn = form.querySelector('.js-clear-access');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', function(){
+        setKeys([]);
+      });
+    }
+
+    roleSelect.addEventListener('change', syncSensitiveAccess);
+    syncSensitiveAccess();
+  });
+})();
+</script>
+{% endblock %}

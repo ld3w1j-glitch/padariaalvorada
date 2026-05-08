@@ -1,0 +1,156 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="main"><div class="wrap">
+  <div class="grid-2">
+    <div class="card">
+      <h1 class="section-title">Criar receita</h1>
+      <p class="muted">Escolha o produto que será produzido usando o código já cadastrado no estoque. Depois adicione os ingredientes da receita.</p>
+      <form method="post">
+        <input type="hidden" name="acao" value="criar_receita">
+        <label class="stock-label">Código do produto produzido</label>
+        <input type="text" name="codigo_produto" placeholder="Ex: código do pão, bolo, salgado..." required>
+        <label class="stock-label">Modo de preparo / observação</label>
+        <textarea name="observacao" rows="5" placeholder="Descreva o modo de preparo, fermentação, forno, ponto ideal..."></textarea>
+        <button type="submit">Criar ou atualizar receita</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2 class="section-title">Montar ordem de produção</h2>
+      <p class="muted">Informe a receita e a quantidade total pedida pela loja. O sistema calcula automaticamente os ingredientes necessários.</p>
+      <form method="post">
+        <input type="hidden" name="acao" value="criar_ordem">
+        <label class="stock-label">Título</label>
+        <input type="text" name="titulo" placeholder="Ex: Produção Loja 1 - manhã">
+        <label class="stock-label">Loja / destino</label>
+        <select name="store_id">
+          <option value="">Sem loja específica</option>
+          {% for loja in lojas %}<option value="{{ loja.id }}">{{ loja.nome }}</option>{% endfor %}
+        </select>
+        <label class="stock-label">Receita</label>
+        <select name="recipe_id" required>
+          <option value="">Selecione</option>
+          {% for receita in receitas %}
+          <option value="{{ receita.id }}">{{ receita.codigo }} - {{ receita.descricao }}</option>
+          {% endfor %}
+        </select>
+        <label class="stock-label">Quantidade total do pedido</label>
+        <input type="text" name="quantidade_pedida" placeholder="Ex: 50 ou 10*5" required>
+        <label class="stock-label">Observação da ordem</label>
+        <textarea name="observacao_ordem" rows="3" placeholder="Ex: prioridade, horário de entrega, observações da loja"></textarea>
+        <button type="submit">Gerar ordem de produção</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px;">
+    <div class="toolbar">
+      <div>
+        <h2 class="section-title">Receitas cadastradas</h2>
+        <div class="mini">Cada ingrediente é puxado do estoque pelo código ou código de barras.</div>
+      </div>
+    </div>
+    {% for receita in receitas %}
+    <article class="stock-item-card" style="margin-bottom:12px;">
+      <div class="stock-item-head">
+        <div>
+          <div class="stock-item-code">Produto {{ receita.codigo }}</div>
+          <h3 class="stock-item-title">{{ receita.descricao }}</h3>
+          {% if receita.observacao %}<p class="muted"><strong>Modo de preparo:</strong> {{ receita.observacao }}</p>{% endif %}
+        </div>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end;">
+          <div class="stock-qty-badge">{{ receita.total_ingredientes }} ingrediente(s)</div>
+          <form method="post" action="{{ url_for('remover_receita', recipe_id=receita.id) }}" onsubmit="return confirm('Remover esta receita? O histórico de produção já registrado será mantido.');">
+            <button class="btn-danger" type="submit">Remover receita</button>
+          </form>
+        </div>
+      </div>
+
+      <form method="post" action="{{ url_for('adicionar_ingrediente_receita', recipe_id=receita.id) }}" class="stock-inline-form">
+        <div class="stock-inline-grid">
+          <div>
+            <label class="stock-label">Código do ingrediente</label>
+            <input type="text" name="codigo_ingrediente" placeholder="Código do item no estoque" required>
+          </div>
+          <div>
+            <label class="stock-label">Quantidade por unidade/receita</label>
+            <input type="text" name="quantidade" placeholder="Ex: 1,5" required>
+          </div>
+          <div>
+            <label class="stock-label">Unidade</label>
+            <select name="unidade">
+              <option value="kg">kg</option>
+              <option value="g">g</option>
+              <option value="l">litro</option>
+              <option value="ml">ml</option>
+              <option value="un">unidade</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn-secondary" type="submit">Adicionar ingrediente</button>
+      </form>
+
+      {% set ingredientes = ingredientes_por_receita.get(receita.id, []) %}
+      {% if ingredientes %}
+      <div class="table-responsive" style="margin-top:10px;"><table>
+        <thead><tr><th>Código</th><th>Ingrediente</th><th>Quantidade</th><th>Ação</th></tr></thead>
+        <tbody>
+        {% for ing in ingredientes %}
+          <tr>
+            <td>{{ ing.codigo }}</td>
+            <td>{{ ing.descricao }}</td>
+            <td>{{ fmt_num(ing.quantidade) }} {{ ing.unidade }}</td>
+            <td><form method="post" action="{{ url_for('remover_ingrediente_receita', item_id=ing.id) }}"><button class="btn-danger" type="submit">Remover</button></form></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+      {% else %}
+      <div class="empty stock-empty-state">Nenhum ingrediente vinculado ainda.</div>
+      {% endif %}
+    </article>
+    {% else %}
+    <div class="empty stock-empty-state">Nenhuma receita cadastrada.</div>
+    {% endfor %}
+  </div>
+
+  <div class="card" style="margin-top:16px;">
+    <div class="toolbar">
+      <div>
+        <h2 class="section-title">Ordens de produção</h2>
+        <div class="mini">Os padeiros podem abrir a ordem, registrar produção e conferir o que falta.</div>
+      </div>
+      <form method="get" action="{{ url_for('exportar_historico_producao_csv') }}" class="compact-form">
+        <input type="date" name="data_inicial">
+        <input type="date" name="data_final">
+        <button class="btn-secondary" type="submit">Exportar histórico CSV</button>
+      </form>
+    </div>
+    <div class="table-responsive"><table>
+      <thead><tr><th>#</th><th>Título</th><th>Loja</th><th>Status</th><th>Pedido</th><th>Produzido</th><th>Ação</th></tr></thead>
+      <tbody>
+      {% for ordem in ordens %}
+        <tr>
+          <td>{{ ordem.id }}</td>
+          <td>{{ ordem.titulo }}<div class="mini">{{ ordem.criado_em }} • {{ ordem.criado_por_nome or 'Sistema' }}</div></td>
+          <td>{{ ordem.store_nome or '-' }}</td>
+          <td><span class="{{ status_class(ordem.status) }}">{{ ordem.status }}</span></td>
+          <td>{{ fmt_num(ordem.total_pedido) }}</td>
+          <td>{{ fmt_num(ordem.total_produzido) }}</td>
+          <td>
+            <div class="compact-form">
+              <a class="btn btn-secondary" href="{{ url_for('ordem_producao', order_id=ordem.id) }}">Abrir ordem</a>
+              <form method="post" action="{{ url_for('remover_ordem_producao', order_id=ordem.id) }}" onsubmit="return confirm('Remover esta ordem de produção? Ela deixará de aparecer no histórico CSV, mas a remoção ficará registrada na auditoria.');">
+                <button class="btn-danger" type="submit">Remover</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7" class="empty">Nenhuma ordem criada ainda.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+  </div>
+</div></section>
+{% endblock %}

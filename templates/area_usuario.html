@@ -1,0 +1,296 @@
+{% extends 'base.html' %}
+{% block content %}
+<style>
+  .user-area-grid{display:grid;grid-template-columns:minmax(320px,1fr) minmax(320px,1.2fr);gap:18px;align-items:start}
+  .user-card{background:#fff;border:1px solid #dfe8dc;border-radius:18px;padding:18px;box-shadow:0 10px 30px rgba(35,84,35,.08);margin-bottom:16px}
+  .user-card h2,.user-card h3{margin:0 0 12px;color:#245326}.user-muted{color:#66756a;font-size:.92rem}
+  .task-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:12px 0}.task-stat{background:#f5faf3;border:1px solid #dfe8dc;border-radius:14px;padding:12px;text-align:center}.task-stat strong{display:block;font-size:1.5rem;color:#245326}
+  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.form-grid .full{grid-column:1/-1}
+  .user-card label{display:block;font-weight:700;color:#315b31;margin:8px 0 5px}.user-card input,.user-card textarea{width:100%;box-sizing:border-box;border:1px solid #cbd8c8;border-radius:12px;padding:10px;background:#fff;font:inherit}.user-card textarea{min-height:90px;resize:vertical}
+  .task-item{border:1px solid #dfe8dc;border-radius:16px;padding:14px;margin-bottom:12px;background:#fff}.task-item.overdue{border-color:#d56b47;background:#fff8f5}.task-item.done{opacity:.72;background:#f6f6f6}.task-title{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.badge{display:inline-block;border-radius:999px;padding:4px 9px;font-size:.78rem;font-weight:800;background:#eaf5e7;color:#245326}.badge.overdue{background:#ffe6da;color:#9d2f13}.badge.done{background:#e5e5e5;color:#555}
+  .task-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.btn-small{border:0;border-radius:999px;padding:8px 12px;cursor:pointer;font-weight:700;background:#2f6b2f;color:#fff}.btn-secondary{background:#eef5ea;color:#245326}.btn-danger{background:#b4442c}.btn-warning{background:#e9822d}
+  details.edit-box{margin-top:10px}details.edit-box summary{cursor:pointer;font-weight:800;color:#2f6b2f}.note-box{border-left:4px solid #2f6b2f;padding:12px;background:#f8fbf7;border-radius:12px;margin-bottom:10px;white-space:pre-wrap}.notify-line{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0 0}.ai-box{border:1px dashed #9fbea0;background:#f8fbf7;border-radius:14px;padding:10px;margin:8px 0}.ai-box-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.ai-model-select{min-width:230px;flex:1;border:1px solid #cbd8c8;border-radius:12px;padding:9px;background:#fff}.ai-status{display:block;margin-top:6px;color:#66756a;font-size:.88rem}
+  @media(max-width:900px){.user-area-grid,.form-grid{grid-template-columns:1fr}.task-stats{grid-template-columns:1fr}}
+</style>
+
+<section class="page-header">
+  <div>
+    <h1>Área do usuário</h1>
+    <p>Monte suas tarefas, metas, horários e anotações. Ative as notificações para receber aviso no celular quando uma tarefa passar do horário.</p>
+  </div>
+</section>
+
+<div class="user-area-grid">
+  <div>
+    <div class="user-card">
+      <h2>Nova tarefa</h2>
+      <form method="post" action="{{ url_for('area_usuario') }}">
+        <div class="form-grid">
+          <div class="full">
+            <label>Título da tarefa</label>
+            <input name="titulo" placeholder="Ex.: Conferir estoque da padaria" required>
+          </div>
+          <div class="full">
+            <label>Meta</label>
+            <input name="meta" placeholder="Ex.: Finalizar antes das 16h ou bater 100% da contagem">
+          </div>
+          <div>
+            <label>Começar em</label>
+            <input type="datetime-local" name="horario_inicio" value="{{ agora_txt }}">
+          </div>
+          <div>
+            <label>Prazo / horário limite</label>
+            <input type="datetime-local" name="prazo">
+          </div>
+          <div class="full">
+            <label>Anotações relevantes</label>
+            <textarea name="anotacoes" placeholder="Detalhes, observações, materiais necessários..."></textarea>
+            <div class="ai-box ai-observation-builder">
+              <div class="ai-box-row">
+                <button class="btn-small btn-secondary scan-ai-models" type="button">Escanear IA offline</button>
+                <select class="ai-model-select local-ai-models" aria-label="Modelos locais detectados">
+                  <option value="">Nenhum modelo escaneado</option>
+                </select>
+                <button class="btn-small generate-ai-observation" type="button">IA criar observação</button>
+              </div>
+              <span class="ai-status">Compatível com Ollama e LM Studio rodando neste PC. Arquivos locais são listados, mas precisam estar conectados a um servidor local para gerar texto.</span>
+            </div>
+          </div>
+        </div>
+        <button class="btn-small" type="submit">Criar tarefa</button>
+      </form>
+      <div class="notify-line">
+        <button class="btn-small btn-warning" type="button" id="enable-task-notifications">Ativar notificações no celular</button>
+        <span class="user-muted" id="notification-status">As notificações dependem da permissão do navegador/PWA.</span>
+      </div>
+    </div>
+
+    <div class="user-card">
+      <h2>Nova anotação</h2>
+      <form method="post" action="{{ url_for('criar_nota_area_usuario') }}">
+        <label>Título</label>
+        <input name="titulo" placeholder="Ex.: Observação do turno">
+        <label>Anotação</label>
+        <textarea name="conteudo" required placeholder="Escreva algo importante para lembrar..."></textarea>
+        <button class="btn-small" type="submit">Salvar anotação</button>
+      </form>
+    </div>
+  </div>
+
+  <div>
+    <div class="user-card">
+      <h2>Resumo</h2>
+      <div class="task-stats">
+        <div class="task-stat"><strong>{{ resumo.abertas }}</strong><span>Abertas</span></div>
+        <div class="task-stat"><strong>{{ resumo.atrasadas }}</strong><span>Atrasadas</span></div>
+        <div class="task-stat"><strong>{{ resumo.concluidas }}</strong><span>Concluídas</span></div>
+      </div>
+    </div>
+
+    <div class="user-card">
+      <h2>Minhas tarefas</h2>
+      {% if tarefas %}
+        {% for item in tarefas %}
+          {% set t = item.row %}
+          <div class="task-item {% if item.atrasada %}overdue{% endif %} {% if t.status == 'CONCLUIDA' %}done{% endif %}" data-task-id="{{ t.id }}">
+            <div class="task-title">
+              <div>
+                <strong>{{ t.titulo }}</strong>
+                {% if t.meta %}<div class="user-muted">Meta: {{ t.meta }}</div>{% endif %}
+              </div>
+              {% if t.status == 'CONCLUIDA' %}<span class="badge done">Concluída</span>{% elif item.atrasada %}<span class="badge overdue">Atrasada</span>{% else %}<span class="badge">Aberta</span>{% endif %}
+            </div>
+            <p class="user-muted">
+              {% if item.inicio_fmt %}Início: {{ item.inicio_fmt }}{% endif %}
+              {% if item.prazo_fmt %}{% if item.inicio_fmt %} • {% endif %}Prazo: {{ item.prazo_fmt }}{% endif %}
+            </p>
+            {% if t.anotacoes %}<div class="note-box">{{ t.anotacoes }}</div>{% endif %}
+            <div class="task-actions">
+              {% if t.status != 'CONCLUIDA' %}
+                <form method="post" action="{{ url_for('concluir_tarefa_area_usuario', task_id=t.id) }}"><button class="btn-small" type="submit">Concluir</button></form>
+              {% else %}
+                <form method="post" action="{{ url_for('reabrir_tarefa_area_usuario', task_id=t.id) }}"><button class="btn-small btn-secondary" type="submit">Reabrir</button></form>
+              {% endif %}
+              <form method="post" action="{{ url_for('excluir_tarefa_area_usuario', task_id=t.id) }}" onsubmit="return confirm('Remover esta tarefa?')"><button class="btn-small btn-danger" type="submit">Remover</button></form>
+            </div>
+            <details class="edit-box">
+              <summary>Editar tarefa</summary>
+              <form method="post" action="{{ url_for('editar_tarefa_area_usuario', task_id=t.id) }}">
+                <div class="form-grid">
+                  <div class="full"><label>Título</label><input name="titulo" value="{{ t.titulo }}" required></div>
+                  <div class="full"><label>Meta</label><input name="meta" value="{{ t.meta or '' }}"></div>
+                  <div><label>Começar em</label><input type="datetime-local" name="horario_inicio" value="{{ t.horario_inicio or '' }}"></div>
+                  <div><label>Prazo</label><input type="datetime-local" name="prazo" value="{{ t.prazo or '' }}"></div>
+                  <div class="full"><label>Anotações</label><textarea name="anotacoes">{{ t.anotacoes or '' }}</textarea>
+                    <div class="ai-box ai-observation-builder">
+                      <div class="ai-box-row">
+                        <button class="btn-small btn-secondary scan-ai-models" type="button">Escanear IA offline</button>
+                        <select class="ai-model-select local-ai-models" aria-label="Modelos locais detectados">
+                          <option value="">Nenhum modelo escaneado</option>
+                        </select>
+                        <button class="btn-small generate-ai-observation" type="button">IA criar observação</button>
+                      </div>
+                      <span class="ai-status">A IA usa o título/meta desta tarefa para montar uma observação prática.</span>
+                    </div>
+                  </div>
+                </div>
+                <button class="btn-small" type="submit">Salvar alteração</button>
+              </form>
+            </details>
+          </div>
+        {% endfor %}
+      {% else %}
+        <p class="user-muted">Nenhuma tarefa cadastrada ainda.</p>
+      {% endif %}
+    </div>
+
+    <div class="user-card">
+      <h2>Minhas anotações</h2>
+      {% if notas %}
+        {% for n in notas %}
+          <details class="edit-box" open>
+            <summary>{{ n.titulo }}</summary>
+            <div class="note-box">{{ n.conteudo }}</div>
+            <form method="post" action="{{ url_for('editar_nota_area_usuario', note_id=n.id) }}">
+              <label>Título</label><input name="titulo" value="{{ n.titulo }}">
+              <label>Anotação</label><textarea name="conteudo" required>{{ n.conteudo }}</textarea>
+              <button class="btn-small" type="submit">Salvar</button>
+            </form>
+            <form method="post" action="{{ url_for('excluir_nota_area_usuario', note_id=n.id) }}" onsubmit="return confirm('Remover esta anotação?')" style="margin-top:8px"><button class="btn-small btn-danger" type="submit">Remover</button></form>
+          </details>
+        {% endfor %}
+      {% else %}
+        <p class="user-muted">Nenhuma anotação cadastrada ainda.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const statusEl = document.getElementById('notification-status');
+  const btn = document.getElementById('enable-task-notifications');
+  function setStatus(text){ if(statusEl) statusEl.textContent = text; }
+  async function ensurePermission(){
+    if (!('Notification' in window)) { setStatus('Este navegador não suporta notificação.'); return false; }
+    if (Notification.permission === 'granted') { setStatus('Notificações ativadas.'); return true; }
+    if (Notification.permission === 'denied') { setStatus('Permissão negada no navegador.'); return false; }
+    const perm = await Notification.requestPermission();
+    setStatus(perm === 'granted' ? 'Notificações ativadas.' : 'Permissão não ativada.');
+    return perm === 'granted';
+  }
+  async function showTaskNotification(task){
+    const title = 'Tarefa atrasada: ' + task.titulo;
+    const body = (task.meta ? task.meta + '\n' : '') + 'Prazo: ' + task.prazo + '\nAbra a Área do usuário para finalizar.';
+    try {
+      if ('serviceWorker' in navigator) {
+        const reg = await navigator.serviceWorker.ready;
+        if (reg && reg.showNotification) {
+          await reg.showNotification(title, { body, tag: 'area-usuario-task-' + task.id, renotify: true, icon: '/static/img/pwa-192.png', badge: '/static/img/favicon-32.png' });
+        } else {
+          new Notification(title, { body });
+        }
+      } else {
+        new Notification(title, { body });
+      }
+    } catch(e) {
+      try { new Notification(title, { body }); } catch(_) {}
+    }
+    fetch('/api/area-usuario/tarefas/' + task.id + '/notificada', { method:'POST', headers:{'X-Requested-With':'fetch'} }).catch(function(){});
+  }
+  async function checkOverdue(){
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    try {
+      const resp = await fetch('/api/area-usuario/tarefas-vencidas', { headers:{'X-Requested-With':'fetch'} });
+      const data = await resp.json();
+      if (data && data.ok && Array.isArray(data.tarefas)) {
+        data.tarefas.forEach(showTaskNotification);
+      }
+    } catch(e) {}
+  }
+  if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/service-worker.js').catch(function(){}); }
+  if (btn) btn.addEventListener('click', async function(){ const ok = await ensurePermission(); if(ok) checkOverdue(); });
+  if ('Notification' in window && Notification.permission === 'granted') setStatus('Notificações ativadas.');
+  checkOverdue();
+  setInterval(checkOverdue, 60000);
+
+  let cachedLocalModels = null;
+  function findTaskForm(el){ return el.closest('form'); }
+  function fillModelSelect(select, modelos){
+    select.innerHTML = '';
+    if (!modelos || !modelos.length) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = 'Nenhum modelo encontrado';
+      select.appendChild(opt);
+      return;
+    }
+    modelos.forEach(function(m){
+      const opt = document.createElement('option');
+      opt.value = m.id;
+      opt.textContent = m.origem + ' - ' + m.nome + (m.geravel === 'sim' ? '' : ' (arquivo)');
+      opt.dataset.geravel = m.geravel;
+      opt.title = m.detalhe || '';
+      select.appendChild(opt);
+    });
+  }
+  function fillAllModelSelects(modelos){
+    document.querySelectorAll('.local-ai-models').forEach(function(select){ fillModelSelect(select, modelos); });
+  }
+  async function scanLocalModels(box){
+    const status = box.querySelector('.ai-status');
+    if (status) status.textContent = 'Escaneando modelos locais no PC...';
+    try {
+      const resp = await fetch('/api/area-usuario/modelos-locais', { headers:{'X-Requested-With':'fetch'} });
+      const data = await resp.json();
+      if (!data.ok) throw new Error(data.erro || 'Falha ao escanear modelos.');
+      cachedLocalModels = data.modelos || [];
+      fillAllModelSelects(cachedLocalModels);
+      if (status) status.textContent = cachedLocalModels.length ? ('Modelos encontrados: ' + cachedLocalModels.length + '. Escolha um e clique em IA criar observação.') : 'Nenhum modelo local encontrado. Abra o Ollama ou LM Studio e tente novamente.';
+    } catch(e) {
+      if (status) status.textContent = 'Erro ao escanear: ' + (e.message || e);
+    }
+  }
+  async function generateObservation(box){
+    const form = findTaskForm(box);
+    const status = box.querySelector('.ai-status');
+    const select = box.querySelector('.local-ai-models');
+    const textarea = form ? form.querySelector('textarea[name="anotacoes"]') : null;
+    const selected = select && select.options[select.selectedIndex];
+    if (!form || !textarea || !select || !select.value) { if(status) status.textContent = 'Escaneie e escolha um modelo primeiro.'; return; }
+    if (selected && selected.dataset.geravel !== 'sim') { if(status) status.textContent = 'Esse arquivo foi detectado, mas precisa estar aberto no Ollama ou LM Studio para gerar texto.'; return; }
+    const payload = {
+      modelo_id: select.value,
+      titulo: (form.querySelector('input[name="titulo"]') || {}).value || '',
+      meta: (form.querySelector('input[name="meta"]') || {}).value || '',
+      horario_inicio: (form.querySelector('input[name="horario_inicio"]') || {}).value || '',
+      prazo: (form.querySelector('input[name="prazo"]') || {}).value || ''
+    };
+    if (!payload.titulo.trim()) { if(status) status.textContent = 'Informe o título para a IA criar a observação.'; return; }
+    if (status) status.textContent = 'Gerando observação com IA offline...';
+    try {
+      const resp = await fetch('/api/area-usuario/gerar-observacao', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json','X-Requested-With':'fetch'},
+        body: JSON.stringify(payload)
+      });
+      const data = await resp.json();
+      if (!data.ok) throw new Error(data.erro || 'Falha ao gerar observação.');
+      textarea.value = data.observacao || '';
+      textarea.focus();
+      if (status) status.textContent = 'Observação criada. Revise e salve a tarefa.';
+    } catch(e) {
+      if (status) status.textContent = 'Erro da IA local: ' + (e.message || e);
+    }
+  }
+  document.querySelectorAll('.ai-observation-builder').forEach(function(box){
+    const scanBtn = box.querySelector('.scan-ai-models');
+    const genBtn = box.querySelector('.generate-ai-observation');
+    if (scanBtn) scanBtn.addEventListener('click', function(){ scanLocalModels(box); });
+    if (genBtn) genBtn.addEventListener('click', function(){ generateObservation(box); });
+    if (cachedLocalModels) fillModelSelect(box.querySelector('.local-ai-models'), cachedLocalModels);
+  });
+
+})();
+</script>
+{% endblock %}
