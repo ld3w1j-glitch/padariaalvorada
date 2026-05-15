@@ -6360,6 +6360,9 @@ def _preencher_base_impressao(payload: dict[str, Any]) -> io.BytesIO:
     quantidade = str(payload.get("quantidade_pacotes") or "").strip()
     codigo = str(payload.get("codigo") or "").strip()
     etiqueta_tipo = str(payload.get("etiqueta_tipo") or "texto").strip().lower()
+    orientacao = str(payload.get("orientacao") or "portrait").strip().lower()
+    if orientacao not in {"portrait", "landscape"}:
+        orientacao = "portrait"
 
     ws["A3"] = produto
     ws["E3"] = peso
@@ -6381,11 +6384,18 @@ def _preencher_base_impressao(payload: dict[str, Any]) -> io.BytesIO:
         ws["E8"] = ""
         ws.add_image(qr_img, "E8")
 
+    # Padrão solicitado: fontes grandes na etiqueta/ficha impressa.
+    # Mantém todos os campos preenchidos com tamanho 60 para melhorar a leitura.
+    fonte_padrao_impressao = 60
     for cell_ref in ["A3", "E3", "A8", "D8", "E8", "A11", "D12", "E12"]:
         cell = ws[cell_ref]
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        cell.font = Font(bold=True, size=12)
-    ws.page_setup.orientation = "portrait"
+        cell.font = Font(bold=True, size=fonte_padrao_impressao)
+
+    # Ajusta alturas para evitar que a fonte 60 fique cortada no Excel/LibreOffice.
+    for row_idx in [3, 8, 11, 12]:
+        ws.row_dimensions[row_idx].height = max(ws.row_dimensions[row_idx].height or 0, 72)
+    ws.page_setup.orientation = orientacao
     ws.page_setup.fitToWidth = 1
     ws.page_setup.fitToHeight = 1
     ws.sheet_properties.pageSetUpPr.fitToPage = True
@@ -6459,6 +6469,7 @@ def impressao_rapida() -> str | Response:
         "largura_cm": "10",
         "altura_cm": "15",
         "impressora": impressora_padrao,
+        "orientacao": "portrait",
     }
 
     stock_item_id = request.values.get("stock_item_id", "").strip()
@@ -6482,7 +6493,7 @@ def impressao_rapida() -> str | Response:
             except Exception as exc:
                 flash(str(exc), "error")
             else:
-                registrar_auditoria("gerar_impressao_rapida", "impressao", form.get("codigo", ""), {"produto": form.get("produto", ""), "action": action, "impressora": form.get("impressora", "")})
+                registrar_auditoria("gerar_impressao_rapida", "impressao", form.get("codigo", ""), {"produto": form.get("produto", ""), "action": action, "impressora": form.get("impressora", ""), "orientacao": form.get("orientacao", "portrait")})
                 if action == "visualizar":
                     flash("Prévia atualizada. Confira o tamanho visual antes de imprimir.", "success")
                 elif action == "imprimir":
@@ -9262,6 +9273,16 @@ def concluir_tarefa(task_id: int) -> Response:
 
 
 
+def _produto_chat_payload(item: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "codigo": item["codigo"],
+        "codigo_barras": item["codigo_barras"],
+        "descricao": item["descricao"],
+        "fator_embalagem": item["fator_embalagem"] or 1,
+        "quantidade_total": float(item["quantidade_atual"] or 0),
+    }
+
+
 @app.get("/comunicacao/produto/buscar")
 @login_required
 @module_required("comunicacao")
@@ -9272,7 +9293,7 @@ def buscar_produto_chat() -> Response:
     like = f"%{codigo}%"
     with closing(get_conn()) as conn:
         item = conn.execute("""
-            SELECT codigo, codigo_barras, descricao, fator_embalagem
+            SELECT codigo, codigo_barras, descricao, fator_embalagem, quantidade_atual
             FROM stock_items
             WHERE ativo = 1
               AND (codigo = ? OR codigo_barras = ? OR codigo LIKE ? OR codigo_barras LIKE ?)
@@ -9281,14 +9302,50 @@ def buscar_produto_chat() -> Response:
         """, (codigo, codigo, like, like, codigo, codigo)).fetchone()
     if item is None:
         return jsonify({"ok": False, "erro": "Produto não encontrado no estoque."}), 404
+    return jsonify({"ok": True, "produto": _produto_chat_payload(item)})
+
+
+@app.get("/comunicacao/produto/escanear")
+@login_required
+@module_required("comunicacao")
+def escanear_produto_chat() -> Response:
+    codigo = (request.args.get("codigo") or "").strip()
+    codigo = re.sub(r"[^0-9A-Za-z_.-]", "", codigo)[:80]
+    if not codigo:
+        return jsonify({"ok": False, "erro": "Informe um código de barras válido."}), 400
+    like = f"%{codigo}%"
+    with closing(get_conn()) as conn:
+        item = conn.execute("""
+            SELECT codigo, codigo_barras, descricao, fator_embalagem, quantidade_atual
+            FROM stock_items
+            WHERE ativo = 1
+              AND (codigo = ? OR codigo_barras = ? OR codigo LIKE ? OR codigo_barras LIKE ?)
+            ORDER BY CASE WHEN codigo = ? THEN 0 WHEN codigo_barras = ? THEN 1 ELSE 2 END, codigo
+            LIMIT 1
+        """, (codigo, codigo, like, like, codigo, codigo)).fetchone()
+        cadastrado_agora = False
+        if item is None:
+            cur = conn.execute("""
+                INSERT INTO stock_items
+                    (codigo, codigo_barras, descricao, fator_embalagem, quantidade_atual, custo_unitario, ativo, atualizado_em)
+                VALUES (?, ?, '', 1, 0, 0, 1, ?)
+            """, (codigo, codigo, agora_iso()))
+            conn.execute("""
+                INSERT INTO stock_movements
+                    (stock_item_id, tipo, quantidade, observacao, referencia_tipo, referencia_id, criado_por, criado_em)
+                VALUES (?, 'CADASTRO_CODIGO_BARRAS_CHAT', 0, ?, 'CHAT', ?, ?, ?)
+            """, (cur.lastrowid, "Código cadastrado automaticamente pelo scanner do chat; descrição pendente.", cur.lastrowid, g.user["id"], agora_iso()))
+            conn.commit()
+            cadastrado_agora = True
+            item = conn.execute("""
+                SELECT codigo, codigo_barras, descricao, fator_embalagem, quantidade_atual
+                FROM stock_items
+                WHERE id = ?
+            """, (cur.lastrowid,)).fetchone()
     return jsonify({
         "ok": True,
-        "produto": {
-            "codigo": item["codigo"],
-            "codigo_barras": item["codigo_barras"],
-            "descricao": item["descricao"],
-            "fator_embalagem": item["fator_embalagem"] or 1,
-        }
+        "cadastrado_agora": cadastrado_agora,
+        "produto": _produto_chat_payload(item),
     })
 
 @app.post("/comunicacao/pedidos-agendados/criar")

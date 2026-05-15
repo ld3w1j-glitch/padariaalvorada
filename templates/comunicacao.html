@@ -153,9 +153,27 @@
 
         <form method="post" enctype="multipart/form-data" action="{{ url_for('enviar_mensagem_chat', group_id=grupo_atual.id) }}" class="wa-chat-form">
           <label class="wa-attach" title="Anexar arquivo">{{ ci("attach") }}<input type="file" name="arquivo"></label>
+          <button class="wa-camera" type="button" id="chatCameraScanBtn" title="Escanear código de barras pela câmera" aria-label="Escanear código de barras pela câmera">📷</button>
           <textarea name="mensagem" id="chatMessageInput" placeholder="Mensagem ou /tarefa ou /pedido" rows="1"></textarea>
           <button class="wa-send" type="submit" title="Enviar">{{ ci("send") }}</button>
         </form>
+
+        <div id="chatScannerModal" class="scanner-modal chat-scanner-modal" hidden>
+          <div class="scanner-card">
+            <div class="scanner-head">
+              <strong>Escanear código de barras</strong>
+              <button type="button" class="btn-secondary small" id="chatScannerCloseBtn">Fechar</button>
+            </div>
+            <p class="mini">Aponte a câmera para o código. Se o item existir, o sistema traz código, descrição e quantidade total. Se não existir, ele cadastra o código e deixa a descrição para preencher depois.</p>
+            <video id="chatScannerVideo" autoplay muted playsinline></video>
+            <div class="scanner-actions">
+              <button type="button" class="btn-secondary small" id="chatScannerSwitchBtn">Trocar câmera</button>
+              <input id="chatScannerManualInput" placeholder="Ou digite o código manualmente">
+              <button type="button" class="btn small primary" id="chatScannerManualBtn">Usar código</button>
+            </div>
+            <p class="mini scanner-status" id="chatScannerStatus">Aguardando câmera...</p>
+          </div>
+        </div>
       </div>
       {% else %}
         <div class="wa-chat-shell wa-no-chat">
@@ -258,6 +276,123 @@
     }
     if (mainStoreSelect) mainStoreSelect.addEventListener('change', syncMainStoreCheckbox);
     if (orderForm) orderForm.addEventListener('submit', syncMainStoreCheckbox);
+
+    // Scanner do chat: lê código de barras pela câmera e transcreve o resultado no campo de mensagem.
+    const chatCameraScanBtn = document.getElementById('chatCameraScanBtn');
+    const chatScannerModal = document.getElementById('chatScannerModal');
+    const chatScannerVideo = document.getElementById('chatScannerVideo');
+    const chatScannerStatus = document.getElementById('chatScannerStatus');
+    const chatScannerCloseBtn = document.getElementById('chatScannerCloseBtn');
+    const chatScannerSwitchBtn = document.getElementById('chatScannerSwitchBtn');
+    const chatScannerManualInput = document.getElementById('chatScannerManualInput');
+    const chatScannerManualBtn = document.getElementById('chatScannerManualBtn');
+    let chatScannerStream = null;
+    let chatScannerTimer = null;
+    let chatScannerFacingMode = 'environment';
+    let chatScannerBusy = false;
+
+    function stopChatScanner(){
+      if (chatScannerTimer) { clearInterval(chatScannerTimer); chatScannerTimer = null; }
+      if (chatScannerStream) {
+        chatScannerStream.getTracks().forEach((track) => track.stop());
+        chatScannerStream = null;
+      }
+      if (chatScannerVideo) chatScannerVideo.srcObject = null;
+      if (chatScannerModal) chatScannerModal.hidden = true;
+      chatScannerBusy = false;
+    }
+
+    function setChatScannerStatus(text, kind){
+      if (!chatScannerStatus) return;
+      chatScannerStatus.textContent = text;
+      chatScannerStatus.className = 'mini scanner-status' + (kind ? ' ' + kind : '');
+    }
+
+    function fillChatWithBarcodeResult(data){
+      if (!chatInput || !data || !data.produto) return;
+      const p = data.produto;
+      const quantidade = Number(p.quantidade_total || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+      let texto = '';
+      if (data.cadastrado_agora) {
+        texto = `📷 Código de barras escaneado e cadastrado:
+Código: ${p.codigo || ''}
+Código de barras: ${p.codigo_barras || p.codigo || ''}
+Descrição: 
+Quantidade total no estoque: ${quantidade}
+Observação: produto novo; preencher a descrição posteriormente.`;
+      } else {
+        texto = `📷 Produto encontrado no estoque:
+Código: ${p.codigo || ''}
+Código de barras: ${p.codigo_barras || ''}
+Descrição: ${p.descricao || ''}
+Quantidade total no estoque: ${quantidade}`;
+      }
+      chatInput.value = texto;
+      chatInput.dispatchEvent(new Event('input', { bubbles: true }));
+      chatInput.focus();
+      stopChatScanner();
+    }
+
+    async function processChatBarcode(codigo){
+      codigo = String(codigo || '').trim();
+      if (!codigo || chatScannerBusy) return;
+      chatScannerBusy = true;
+      setChatScannerStatus('Consultando o estoque...', 'ok');
+      try {
+        const resp = await fetch(`{{ url_for('escanear_produto_chat') }}?codigo=${encodeURIComponent(codigo)}`);
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) throw new Error(data.erro || 'Não foi possível consultar/cadastrar o código.');
+        fillChatWithBarcodeResult(data);
+      } catch (err) {
+        chatScannerBusy = false;
+        setChatScannerStatus(err.message || 'Erro ao consultar o código.', 'error');
+      }
+    }
+
+    async function startChatScanner(){
+      if (!chatScannerModal || !chatScannerVideo) return;
+      chatScannerModal.hidden = false;
+      setChatScannerStatus('Abrindo câmera...');
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setChatScannerStatus('Este navegador não liberou câmera. Digite o código manualmente abaixo.', 'error');
+        return;
+      }
+      try {
+        if (chatScannerStream) chatScannerStream.getTracks().forEach((track) => track.stop());
+        chatScannerStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: chatScannerFacingMode }, audio: false });
+        chatScannerVideo.srcObject = chatScannerStream;
+        await chatScannerVideo.play();
+        if (!('BarcodeDetector' in window)) {
+          setChatScannerStatus('Câmera aberta, mas este navegador não tem leitor nativo. Use Chrome/Edge atualizado no Android ou digite manualmente.', 'error');
+          return;
+        }
+        const formats = ['ean_13','ean_8','code_128','code_39','code_93','upc_a','upc_e','itf','qr_code'];
+        const detector = new BarcodeDetector({ formats });
+        setChatScannerStatus('Aponte para o código de barras...', 'ok');
+        chatScannerTimer = setInterval(async () => {
+          if (chatScannerBusy || !chatScannerVideo || chatScannerVideo.readyState < 2) return;
+          try {
+            const codes = await detector.detect(chatScannerVideo);
+            if (codes && codes.length) processChatBarcode(codes[0].rawValue);
+          } catch (err) {
+            setChatScannerStatus('Não consegui ler agora. Aproxime o código ou digite manualmente.', 'error');
+          }
+        }, 650);
+      } catch (err) {
+        setChatScannerStatus('Não foi possível acessar a câmera. Verifique a permissão do navegador.', 'error');
+      }
+    }
+
+    if (chatCameraScanBtn) chatCameraScanBtn.addEventListener('click', startChatScanner);
+    if (chatScannerCloseBtn) chatScannerCloseBtn.addEventListener('click', stopChatScanner);
+    if (chatScannerSwitchBtn) chatScannerSwitchBtn.addEventListener('click', () => {
+      chatScannerFacingMode = chatScannerFacingMode === 'environment' ? 'user' : 'environment';
+      startChatScanner();
+    });
+    if (chatScannerManualBtn) chatScannerManualBtn.addEventListener('click', () => processChatBarcode(chatScannerManualInput ? chatScannerManualInput.value : ''));
+    if (chatScannerManualInput) chatScannerManualInput.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') { ev.preventDefault(); processChatBarcode(chatScannerManualInput.value); }
+    });
   </script>
 </main>
 {% endblock %}

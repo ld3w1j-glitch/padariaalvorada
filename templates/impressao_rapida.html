@@ -43,14 +43,15 @@
 
   <div class="card">
     <h2 class="section-title">Dados para preencher, visualizar e imprimir</h2>
-    <form method="post" id="form-impressao-rapida">
+    <form method="post" id="form-impressao-rapida" class="impressao-form-melhorada">
       <input type="hidden" name="q" value="{{ q or '' }}">
+      <input type="hidden" name="orientacao" id="orientacao-impressao" value="{{ form.orientacao or 'portrait' }}">
       <div class="inline">
-        <div style="width:100%;">
+        <div class="campo-produto-impressao">
           <label class="stock-label">Produto</label>
           <input class="live-preview" data-preview-target="pv-produto" type="text" name="produto" value="{{ form.produto }}" placeholder="Nome do produto" required>
         </div>
-        <div style="width:160px;">
+        <div class="campo-codigo-impressao">
           <label class="stock-label">Código</label>
           <div class="camera-input-row compact">
             <input id="campo-codigo" class="live-preview" data-preview-target="pv-codigo" type="text" name="codigo" value="{{ form.codigo }}" placeholder="Código">
@@ -118,7 +119,7 @@
       {% endif %}
       <div class="stock-search-actions" style="margin-top:14px;">
         <button class="btn-secondary" type="submit" name="action" value="visualizar">Atualizar prévia</button>
-        <button type="submit" name="action" value="imprimir">Imprimir agora</button>
+        <button type="button" id="abrir-opcoes-impressao">Imprimir agora</button>
         <button class="btn-secondary" type="submit" name="action" value="baixar">Baixar Excel preenchido</button>
       </div>
     </form>
@@ -195,6 +196,19 @@
   </div>
 </div></section>
 
+
+<div id="print-orientation-modal" class="print-modal" hidden>
+  <div class="print-modal-card">
+    <h3>Escolher orientação da impressão</h3>
+    <p class="muted">Escolha como a etiqueta será enviada para impressão.</p>
+    <div class="print-orientation-grid">
+      <button type="button" class="btn-secondary" data-print-orientation="portrait">Retrato / Vertical</button>
+      <button type="button" class="btn-secondary" data-print-orientation="landscape">Paisagem / Horizontal</button>
+    </div>
+    <button type="button" class="btn-secondary" id="cancelar-opcoes-impressao">Cancelar</button>
+  </div>
+</div>
+
 <div id="camera-scanner-modal" class="scanner-modal" hidden>
   <div class="scanner-card">
     <div class="scanner-head">
@@ -214,6 +228,35 @@
 
 <script>
 (function(){
+
+  const printBtn = document.getElementById('abrir-opcoes-impressao');
+  const printModal = document.getElementById('print-orientation-modal');
+  const printCancel = document.getElementById('cancelar-opcoes-impressao');
+  const printForm = document.getElementById('form-impressao-rapida');
+  const printOrientation = document.getElementById('orientacao-impressao');
+  function submitPrintWithOrientation(value){
+    if (!printForm) return;
+    printOrientation.value = value || 'portrait';
+    let actionInput = printForm.querySelector('input[name="action"][data-print-action="1"]');
+    if (!actionInput) {
+      actionInput = document.createElement('input');
+      actionInput.type = 'hidden';
+      actionInput.name = 'action';
+      actionInput.dataset.printAction = '1';
+      printForm.appendChild(actionInput);
+    }
+    actionInput.value = 'imprimir';
+    printForm.submit();
+  }
+  printBtn?.addEventListener('click', () => {
+    if (printForm && !printForm.reportValidity()) return;
+    printModal.hidden = false;
+  });
+  printCancel?.addEventListener('click', () => { printModal.hidden = true; });
+  document.querySelectorAll('[data-print-orientation]').forEach(btn => {
+    btn.addEventListener('click', () => submitPrintWithOrientation(btn.dataset.printOrientation));
+  });
+
   const box = document.getElementById('label-preview-box');
   const wInput = document.getElementById('preview-width');
   const hInput = document.getElementById('preview-height');
