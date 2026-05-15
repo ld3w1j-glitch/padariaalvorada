@@ -3338,3 +3338,71 @@ body {
   .camera-input-row.compact input{min-width:0;}
   .print-orientation-grid{grid-template-columns:1fr;}
 }
+
+/* Ajuste final: menu hamburguer com rolagem no celular */
+@media (max-width: 760px) {
+  .topbar.is-open {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    max-height: none !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    -webkit-overflow-scrolling: touch !important;
+    overscroll-behavior: contain !important;
+    z-index: 99999 !important;
+    background: var(--bg, #fbf7ef) !important;
+  }
+
+  .topbar.is-open .wrap {
+    width: 100% !important;
+    max-width: none !important;
+    min-height: 100dvh !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    padding: 12px 14px 28px !important;
+    box-sizing: border-box !important;
+  }
+
+  .topbar.is-open .topbar-head {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 2 !important;
+    background: var(--bg, #fbf7ef) !important;
+    padding-bottom: 10px !important;
+  }
+
+  .topbar.is-open .nav {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    padding: 6px 0 calc(42px + env(safe-area-inset-bottom)) !important;
+    gap: 9px !important;
+    touch-action: pan-y !important;
+  }
+
+  .topbar.is-open .nav a {
+    width: 100% !important;
+    min-height: 44px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    box-sizing: border-box !important;
+    font-size: 15px !important;
+  }
+
+  body.menu-open {
+    overflow: hidden !important;
+  }
+}
