@@ -9641,6 +9641,13 @@ def receitas() -> str | Response:
                 if produto is None:
                     flash('Produto da receita não encontrado no estoque.', 'error')
                     return redirect(url_for('receitas'))
+                linha_produto = ' '.join([
+                    str(produto['linha_erp'] or ''),
+                    str(produto['linha_caminho_erp'] or ''),
+                ]).upper()
+                if 'PRODUT' not in linha_produto:
+                    flash('Para criar receita, escolha apenas itens da linha Produtos, que são os itens produzidos aqui.', 'error')
+                    return redirect(url_for('receitas'))
                 try:
                     cur = conn.execute(
                         """
@@ -9759,7 +9766,27 @@ def receitas() -> str | Response:
             """
         ).fetchall()
         lojas = conn.execute("SELECT id, nome FROM stores WHERE ativo = 1 ORDER BY CASE WHEN nome = 'CD' THEN 9999 WHEN nome LIKE 'Loja %' THEN CAST(REPLACE(nome, 'Loja ', '') AS INTEGER) ELSE 5000 END, nome").fetchall()
-    return render_template('receitas.html', title='Receitas e produção', receitas=receitas_rows, ingredientes_por_receita=ingredientes_por_receita, ordens=ordens, lojas=lojas)
+        produtos_linha_produtos = conn.execute(
+            """
+            SELECT id, codigo, descricao, linha_erp, linha_caminho_erp
+            FROM stock_items
+            WHERE ativo = 1
+              AND (
+                UPPER(COALESCE(linha_erp, '')) LIKE '%PRODUT%'
+                OR UPPER(COALESCE(linha_caminho_erp, '')) LIKE '%PRODUT%'
+              )
+            ORDER BY descricao
+            """
+        ).fetchall()
+    return render_template(
+        'receitas.html',
+        title='Receitas e produção',
+        receitas=receitas_rows,
+        ingredientes_por_receita=ingredientes_por_receita,
+        ordens=ordens,
+        lojas=lojas,
+        produtos_linha_produtos=produtos_linha_produtos,
+    )
 
 
 @app.post('/receitas/<int:recipe_id>/remover')
