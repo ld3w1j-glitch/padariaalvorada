@@ -10156,14 +10156,14 @@ def detectar_modelos_ia_locais() -> list[dict[str, str]]:
     return modelos
 
 
-def gerar_observacao_com_modelo_local(modelo_id: str, titulo: str, meta: str, horario_inicio: str, prazo: str) -> str:
+def montar_prompt_observacao_tarefa(titulo: str, meta: str, horario_inicio: str, prazo: str) -> str:
     contexto = {
         "titulo": titulo.strip(),
         "meta": meta.strip(),
         "horario_inicio": _fmt_dt_local(horario_inicio),
         "prazo": _fmt_dt_local(prazo),
     }
-    prompt = f"""
+    return f"""
 Você é um assistente de produtividade para uma empresa de estoque, separação e conferência.
 Crie uma observação prática, objetiva e realmente utilizável para a tarefa abaixo.
 Use português do Brasil.
@@ -10179,6 +10179,16 @@ Meta: {contexto['meta'] or 'não informada'}
 Início: {contexto['horario_inicio'] or 'não informado'}
 Prazo: {contexto['prazo'] or 'não informado'}
 """.strip()
+
+
+def gerar_observacao_com_ia_configurada(titulo: str, meta: str, horario_inicio: str, prazo: str) -> str:
+    prompt = montar_prompt_observacao_tarefa(titulo, meta, horario_inicio, prazo)
+    system = "Você cria observações operacionais curtas, claras e práticas em português do Brasil para o Sistema Alvorada."
+    return responder_ia_sistema(prompt, system=system)
+
+
+def gerar_observacao_com_modelo_local(modelo_id: str, titulo: str, meta: str, horario_inicio: str, prazo: str) -> str:
+    prompt = montar_prompt_observacao_tarefa(titulo, meta, horario_inicio, prazo)
     if modelo_id.startswith("ollama::"):
         nome = modelo_id.split("::", 1)[1]
         data = _http_json_local(
@@ -10511,17 +10521,14 @@ def api_modelos_locais_area_usuario() -> Response:
 @module_required("area_usuario")
 def api_gerar_observacao_area_usuario() -> Response:
     data = request.get_json(silent=True) or {}
-    modelo_id = str(data.get("modelo_id") or "").strip()
     titulo = str(data.get("titulo") or "").strip()
     meta = str(data.get("meta") or "").strip()
     horario_inicio = _normalizar_datetime_local(str(data.get("horario_inicio") or ""))
     prazo = _normalizar_datetime_local(str(data.get("prazo") or ""))
-    if not modelo_id:
-        return jsonify({"ok": False, "erro": "Escolha um modelo de IA local."}), 400
     if not titulo:
         return jsonify({"ok": False, "erro": "Informe o título da tarefa para a IA montar a observação."}), 400
     try:
-        observacao = gerar_observacao_com_modelo_local(modelo_id, titulo, meta, horario_inicio, prazo)
+        observacao = gerar_observacao_com_ia_configurada(titulo, meta, horario_inicio, prazo)
     except Exception as exc:
         return jsonify({"ok": False, "erro": str(exc)}), 500
     return jsonify({"ok": True, "observacao": observacao})

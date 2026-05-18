@@ -47,13 +47,9 @@
             <textarea name="anotacoes" placeholder="Detalhes, observações, materiais necessários..."></textarea>
             <div class="ai-box ai-observation-builder">
               <div class="ai-box-row">
-                <button class="btn-small btn-secondary scan-ai-models" type="button">Escanear IA offline</button>
-                <select class="ai-model-select local-ai-models" aria-label="Modelos locais detectados">
-                  <option value="">Nenhum modelo escaneado</option>
-                </select>
-                <button class="btn-small generate-ai-observation" type="button">IA criar observação</button>
+                <button class="btn-small generate-ai-observation" type="button">IA configurada criar observação</button>
               </div>
-              <span class="ai-status">Compatível com Ollama e LM Studio rodando neste PC. Arquivos locais são listados, mas precisam estar conectados a um servidor local para gerar texto.</span>
+              <span class="ai-status">A observação será gerada usando a IA principal conectada em Configurações: Gemini, OpenAI ou modelo local habilitado.</span>
             </div>
           </div>
         </div>
@@ -124,13 +120,9 @@
                   <div class="full"><label>Anotações</label><textarea name="anotacoes">{{ t.anotacoes or '' }}</textarea>
                     <div class="ai-box ai-observation-builder">
                       <div class="ai-box-row">
-                        <button class="btn-small btn-secondary scan-ai-models" type="button">Escanear IA offline</button>
-                        <select class="ai-model-select local-ai-models" aria-label="Modelos locais detectados">
-                          <option value="">Nenhum modelo escaneado</option>
-                        </select>
-                        <button class="btn-small generate-ai-observation" type="button">IA criar observação</button>
+                        <button class="btn-small generate-ai-observation" type="button">IA configurada criar observação</button>
                       </div>
-                      <span class="ai-status">A IA usa o título/meta desta tarefa para montar uma observação prática.</span>
+                      <span class="ai-status">A IA usa o título/meta desta tarefa e responde pela IA principal definida em Configurações.</span>
                     </div>
                   </div>
                 </div>
@@ -214,60 +206,21 @@
   checkOverdue();
   setInterval(checkOverdue, 60000);
 
-  let cachedLocalModels = null;
   function findTaskForm(el){ return el.closest('form'); }
-  function fillModelSelect(select, modelos){
-    select.innerHTML = '';
-    if (!modelos || !modelos.length) {
-      const opt = document.createElement('option');
-      opt.value = '';
-      opt.textContent = 'Nenhum modelo encontrado';
-      select.appendChild(opt);
-      return;
-    }
-    modelos.forEach(function(m){
-      const opt = document.createElement('option');
-      opt.value = m.id;
-      opt.textContent = m.origem + ' - ' + m.nome + (m.geravel === 'sim' ? '' : ' (arquivo)');
-      opt.dataset.geravel = m.geravel;
-      opt.title = m.detalhe || '';
-      select.appendChild(opt);
-    });
-  }
-  function fillAllModelSelects(modelos){
-    document.querySelectorAll('.local-ai-models').forEach(function(select){ fillModelSelect(select, modelos); });
-  }
-  async function scanLocalModels(box){
-    const status = box.querySelector('.ai-status');
-    if (status) status.textContent = 'Escaneando modelos locais no PC...';
-    try {
-      const resp = await fetch('/api/area-usuario/modelos-locais', { headers:{'X-Requested-With':'fetch'} });
-      const data = await resp.json();
-      if (!data.ok) throw new Error(data.erro || 'Falha ao escanear modelos.');
-      cachedLocalModels = data.modelos || [];
-      fillAllModelSelects(cachedLocalModels);
-      if (status) status.textContent = cachedLocalModels.length ? ('Modelos encontrados: ' + cachedLocalModels.length + '. Escolha um e clique em IA criar observação.') : 'Nenhum modelo local encontrado. Abra o Ollama ou LM Studio e tente novamente.';
-    } catch(e) {
-      if (status) status.textContent = 'Erro ao escanear: ' + (e.message || e);
-    }
-  }
+
   async function generateObservation(box){
     const form = findTaskForm(box);
     const status = box.querySelector('.ai-status');
-    const select = box.querySelector('.local-ai-models');
     const textarea = form ? form.querySelector('textarea[name="anotacoes"]') : null;
-    const selected = select && select.options[select.selectedIndex];
-    if (!form || !textarea || !select || !select.value) { if(status) status.textContent = 'Escaneie e escolha um modelo primeiro.'; return; }
-    if (selected && selected.dataset.geravel !== 'sim') { if(status) status.textContent = 'Esse arquivo foi detectado, mas precisa estar aberto no Ollama ou LM Studio para gerar texto.'; return; }
+    if (!form || !textarea) { if(status) status.textContent = 'Não encontrei o campo de anotações desta tarefa.'; return; }
     const payload = {
-      modelo_id: select.value,
       titulo: (form.querySelector('input[name="titulo"]') || {}).value || '',
       meta: (form.querySelector('input[name="meta"]') || {}).value || '',
       horario_inicio: (form.querySelector('input[name="horario_inicio"]') || {}).value || '',
       prazo: (form.querySelector('input[name="prazo"]') || {}).value || ''
     };
     if (!payload.titulo.trim()) { if(status) status.textContent = 'Informe o título para a IA criar a observação.'; return; }
-    if (status) status.textContent = 'Gerando observação com IA offline...';
+    if (status) status.textContent = 'Gerando observação com a IA configurada...';
     try {
       const resp = await fetch('/api/area-usuario/gerar-observacao', {
         method: 'POST',
@@ -278,17 +231,15 @@
       if (!data.ok) throw new Error(data.erro || 'Falha ao gerar observação.');
       textarea.value = data.observacao || '';
       textarea.focus();
-      if (status) status.textContent = 'Observação criada. Revise e salve a tarefa.';
+      if (status) status.textContent = 'Observação criada pela IA configurada. Revise e salve a tarefa.';
     } catch(e) {
-      if (status) status.textContent = 'Erro da IA local: ' + (e.message || e);
+      if (status) status.textContent = 'Erro da IA configurada: ' + (e.message || e);
     }
   }
+
   document.querySelectorAll('.ai-observation-builder').forEach(function(box){
-    const scanBtn = box.querySelector('.scan-ai-models');
     const genBtn = box.querySelector('.generate-ai-observation');
-    if (scanBtn) scanBtn.addEventListener('click', function(){ scanLocalModels(box); });
     if (genBtn) genBtn.addEventListener('click', function(){ generateObservation(box); });
-    if (cachedLocalModels) fillModelSelect(box.querySelector('.local-ai-models'), cachedLocalModels);
   });
 
 })();
