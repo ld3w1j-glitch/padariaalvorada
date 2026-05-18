@@ -1,4 +1,4 @@
-const CACHE_NAME = 'alvorada-pwa-v2';
+const CACHE_NAME = 'alvorada-pwa-v3-solzinho';
 const STATIC_ASSETS = [
   '/static/manifest.webmanifest',
   '/static/css/app.css',
@@ -8,7 +8,8 @@ const STATIC_ASSETS = [
   '/static/img/favicon.ico',
   '/static/img/apple-touch-icon.png',
   '/static/img/pwa-192.png',
-  '/static/img/pwa-512.png'
+  '/static/img/pwa-512.png',
+  '/static/img/favicon-256.png'
 ];
 
 self.addEventListener('install', event => {
