@@ -4,17 +4,21 @@
   <div class="grid-2">
     <div class="card">
       <h1 class="section-title">Criar receita</h1>
-      <p class="muted">Escolha o produto que será produzido usando o código já cadastrado no estoque. Depois adicione os ingredientes da receita.</p>
+      <p class="muted">Escolha somente os produtos produzidos nos caminhos liberados da Padaria - Indústria CD. Depois adicione os ingredientes da receita.</p>
+      <div class="toolbar" style="margin-bottom:10px;">
+        <div class="mini">Filtro aplicado: Geral / Padaria / Padaria - Industria Cd / Bolos, Rotiseria/Salgados, Congelados, Pães e Confeitaria.</div>
+        <a class="btn btn-secondary" href="{{ url_for('exportar_produtos_linha_receita_xlsx') }}">Exportar Excel da linha</a>
+      </div>
       <form method="post">
         <input type="hidden" name="acao" value="criar_receita">
         <label class="stock-label">Produto produzido</label>
         <select name="codigo_produto" required>
-          <option value="">Selecione um item da linha Produtos</option>
+          <option value="">Selecione apenas produto produzido</option>
           {% for produto in produtos_linha_produtos %}
-          <option value="{{ produto.codigo }}">{{ produto.codigo }} - {{ produto.descricao }}{% if produto.linha_erp %} • {{ produto.linha_erp }}{% endif %}</option>
+          <option value="{{ produto.codigo }}">{{ produto.codigo }} - {{ produto.descricao }}{% if produto.categoria_receita %} • {{ produto.categoria_receita }}{% endif %}</option>
           {% endfor %}
         </select>
-        <div class="mini">Aqui aparecem apenas itens cadastrados na linha Produtos, ou seja, os produtos feitos na produção.</div>
+        <div class="mini">Total disponível para receita: {{ produtos_linha_produtos|length }} item(ns). O filtro bloqueia Biscoitos, Panetones, Pizzas, Gelo e outras linhas fora da lista liberada.</div>
         <label class="stock-label">Modo de preparo / observação</label>
         <textarea name="observacao" rows="5" placeholder="Descreva o modo de preparo, fermentação, forno, ponto ideal..."></textarea>
         <button type="submit">Criar ou atualizar receita</button>

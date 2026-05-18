@@ -17,6 +17,7 @@ import urllib.request
 import urllib.error
 import subprocess
 import platform
+import unicodedata
 from pathlib import Path
 from contextlib import closing
 from datetime import datetime
@@ -8172,6 +8173,125 @@ def relatorio_gerencial_pdf() -> Response:
     return send_file(buffer, mimetype="application/pdf", as_attachment=True, download_name=f"relatorio_gerencial_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf")
 
 
+
+
+@app.get("/relatorios/gerencial/produtos-linha.xlsx")
+@login_required
+@module_required("relatorios")
+def relatorio_gerencial_produtos_linha_excel() -> Response:
+    """Exporta todos os produtos existentes no estoque conforme o filtro de linha do relatório gerencial."""
+    if not user_has_access(g.user, "relatorios"):
+        return forbidden_redirect("Sem permissão para exportar os relatórios.")
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.utils import get_column_letter
+    except ImportError:
+        flash("Para exportar em Excel, instale a dependência openpyxl.", "error")
+        return redirect(url_for("relatorio_gerencial"))
+
+    periodo = request.args.get("periodo", "30")
+    linha_base = request.args.get("linha_base", "Padaria")
+    sublinha = request.args.get("sublinha", "")
+    periodo_int = int(periodo) if str(periodo).isdigit() else 30
+    where_st, params_st = _where_linha_relatorio("st", linha_base, sublinha)
+
+    with closing(get_conn()) as conn:
+        itens = conn.execute(f"""
+            SELECT
+                st.codigo,
+                COALESCE(st.codigo_barras, '') AS codigo_barras,
+                st.descricao,
+                COALESCE(st.linha_erp, '') AS linha_erp,
+                COALESCE(st.linha_caminho_erp, '') AS linha_caminho_erp,
+                COALESCE(st.erp_loja, '') AS erp_loja,
+                COALESCE(st.erp_nivel, '') AS erp_nivel,
+                COALESCE(st.quantidade_atual, 0) AS quantidade_atual,
+                COALESCE(st.fator_embalagem, 1) AS fator_embalagem,
+                COALESCE(st.custo_unitario, 0) AS custo_unitario,
+                COALESCE(st.quantidade_atual * st.custo_unitario, 0) AS valor_total,
+                COALESCE(st.erp_data_base, '') AS erp_data_base,
+                COALESCE(st.atualizado_em, '') AS atualizado_em
+            FROM stock_items st
+            WHERE st.ativo = 1 {where_st}
+            ORDER BY st.linha_caminho_erp COLLATE NOCASE ASC, st.linha_erp COLLATE NOCASE ASC, st.descricao COLLATE NOCASE ASC
+        """, params_st).fetchall()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Produtos da linha"
+    filtro_nome = str(linha_base or "Padaria").strip() or "Padaria"
+    if str(sublinha or "").strip():
+        filtro_nome += " / " + str(sublinha).strip()
+
+    ws.append(["Produtos existentes na linha"] )
+    ws.append(["Filtro", filtro_nome])
+    ws.append(["Período visualizado no relatório", f"{max(1, min(periodo_int, 365))} dias"])
+    ws.append(["Gerado em", agora_br()])
+    ws.append(["Total de produtos", len(itens)])
+    ws.append([])
+
+    headers = [
+        "Código",
+        "Código de barras",
+        "Descrição",
+        "Linha",
+        "Caminho da linha",
+        "Loja ERP",
+        "Nível ERP",
+        "Saldo atual",
+        "Fator embalagem",
+        "Custo unitário",
+        "Valor total",
+        "Data base ERP",
+        "Atualizado em",
+    ]
+    ws.append(headers)
+    header_row = ws.max_row
+    for cell in ws[header_row]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="2F5D2E")
+        cell.alignment = Alignment(horizontal="center")
+
+    for item in itens:
+        ws.append([
+            item["codigo"],
+            item["codigo_barras"],
+            item["descricao"],
+            item["linha_erp"],
+            item["linha_caminho_erp"],
+            item["erp_loja"],
+            item["erp_nivel"],
+            float(item["quantidade_atual"] or 0),
+            float(item["fator_embalagem"] or 1),
+            float(item["custo_unitario"] or 0),
+            float(item["valor_total"] or 0),
+            item["erp_data_base"],
+            item["atualizado_em"],
+        ])
+
+    for row in ws.iter_rows(min_row=header_row + 1, min_col=8, max_col=11):
+        for cell in row:
+            cell.number_format = '#,##0.00'
+
+    widths = [16, 22, 48, 32, 58, 18, 14, 15, 16, 16, 16, 18, 22]
+    for idx, width in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(idx)].width = width
+    ws.freeze_panes = f"A{header_row + 1}"
+    ws.auto_filter.ref = f"A{header_row}:M{ws.max_row}"
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    registrar_auditoria("exportar_relatorio_gerencial_produtos_linha_excel", "relatorio", filtro_nome, {"linha_base": linha_base, "sublinha": sublinha, "total": len(itens)})
+    return send_file(
+        buffer,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=f"produtos_linha_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+    )
+
+
 @app.get("/relatorios")
 @login_required
 @module_required("relatorios")
@@ -9600,6 +9720,83 @@ def api_mcp_registrar_ocorrencia() -> Response:
         "issue_id": issue_id,
     })
 
+
+RECEITA_PRODUTO_CAMINHO_BASE = 'GERAL / PADARIA / PADARIA - INDUSTRIA CD'
+RECEITA_CATEGORIAS_PERMITIDAS_LABEL = 'Bolos, Rotiseria/Salgados, Congelados, Pães e Confeitaria'
+RECEITA_CATEGORIAS_PERMITIDAS_NORMALIZADAS = (
+    'BOLO',
+    'ROTISERIA',
+    'ROTISSERIA',
+    'SALGADO',
+    'CONGELADO',
+    'PAO',
+    'PAES',
+    'PÃES',
+    'CONFEITARIA',
+)
+
+
+def normalizar_texto_receita(valor: str | None) -> str:
+    """Normaliza acentos e espaços para comparar caminhos do ERP com segurança."""
+    texto = str(valor or '').strip().upper()
+    texto = unicodedata.normalize('NFKD', texto)
+    texto = ''.join(ch for ch in texto if not unicodedata.combining(ch))
+    texto = re.sub(r'\s+', ' ', texto)
+    return texto
+
+
+def categoria_receita_permitida(item: sqlite3.Row | dict[str, Any] | None) -> str:
+    """Retorna a categoria liberada do item ou string vazia.
+
+    A tela de criar receita deve listar somente itens do caminho:
+    Geral / Padaria / Padaria - Industria Cd / Bolos, Rotiseria/Salgados,
+    Congelados, Pães e Confeitaria.
+    """
+    if item is None:
+        return ''
+    caminho_original = str(item['linha_caminho_erp'] or '').strip()
+    caminho = normalizar_texto_receita(caminho_original)
+    base = normalizar_texto_receita(RECEITA_PRODUTO_CAMINHO_BASE)
+    if not caminho.startswith(base):
+        return ''
+    partes_originais = [p.strip() for p in caminho_original.split('/') if p.strip()]
+    partes_norm = [normalizar_texto_receita(p) for p in partes_originais]
+    base_partes = [normalizar_texto_receita(p) for p in RECEITA_PRODUTO_CAMINHO_BASE.split('/') if p.strip()]
+    if len(partes_norm) <= len(base_partes) or partes_norm[:len(base_partes)] != base_partes:
+        return ''
+    categoria = partes_norm[len(base_partes)]
+    categoria_original = partes_originais[len(base_partes)]
+    for prefixo in RECEITA_CATEGORIAS_PERMITIDAS_NORMALIZADAS:
+        if categoria.startswith(normalizar_texto_receita(prefixo)):
+            return categoria_original
+    return ''
+
+
+def item_permitido_para_receita(item: sqlite3.Row | None) -> bool:
+    return bool(categoria_receita_permitida(item))
+
+
+def listar_produtos_permitidos_receita(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Lista apenas os produtos produzidos que podem virar receita."""
+    rows = conn.execute(
+        """
+        SELECT id, codigo, codigo_barras, descricao, fator_embalagem, quantidade_atual,
+               custo_unitario, linha_erp, linha_caminho_erp, erp_atualizado_em, atualizado_em
+        FROM stock_items
+        WHERE ativo = 1
+          AND UPPER(COALESCE(linha_caminho_erp, '')) LIKE 'GERAL / PADARIA / PADARIA - INDUSTRIA CD%'
+        ORDER BY linha_caminho_erp COLLATE NOCASE, descricao COLLATE NOCASE
+        """
+    ).fetchall()
+    produtos: list[dict[str, Any]] = []
+    for row in rows:
+        categoria = categoria_receita_permitida(row)
+        if categoria:
+            item = dict(row)
+            item['categoria_receita'] = categoria
+            produtos.append(item)
+    return produtos
+
 def buscar_item_estoque_por_codigo(conn: sqlite3.Connection, codigo: str) -> sqlite3.Row | None:
     codigo = str(codigo or '').strip()
     if not codigo:
@@ -9641,12 +9838,8 @@ def receitas() -> str | Response:
                 if produto is None:
                     flash('Produto da receita não encontrado no estoque.', 'error')
                     return redirect(url_for('receitas'))
-                linha_produto = ' '.join([
-                    str(produto['linha_erp'] or ''),
-                    str(produto['linha_caminho_erp'] or ''),
-                ]).upper()
-                if 'PRODUT' not in linha_produto:
-                    flash('Para criar receita, escolha apenas itens da linha Produtos, que são os itens produzidos aqui.', 'error')
+                if not item_permitido_para_receita(produto):
+                    flash('Para criar receita, escolha apenas itens de Geral / Padaria / Padaria - Industria Cd nas categorias Bolos, Rotiseria/Salgados, Congelados, Pães e Confeitaria.', 'error')
                     return redirect(url_for('receitas'))
                 try:
                     cur = conn.execute(
@@ -9766,18 +9959,7 @@ def receitas() -> str | Response:
             """
         ).fetchall()
         lojas = conn.execute("SELECT id, nome FROM stores WHERE ativo = 1 ORDER BY CASE WHEN nome = 'CD' THEN 9999 WHEN nome LIKE 'Loja %' THEN CAST(REPLACE(nome, 'Loja ', '') AS INTEGER) ELSE 5000 END, nome").fetchall()
-        produtos_linha_produtos = conn.execute(
-            """
-            SELECT id, codigo, descricao, linha_erp, linha_caminho_erp
-            FROM stock_items
-            WHERE ativo = 1
-              AND (
-                UPPER(COALESCE(linha_erp, '')) LIKE '%PRODUT%'
-                OR UPPER(COALESCE(linha_caminho_erp, '')) LIKE '%PRODUT%'
-              )
-            ORDER BY descricao
-            """
-        ).fetchall()
+        produtos_linha_produtos = listar_produtos_permitidos_receita(conn)
     return render_template(
         'receitas.html',
         title='Receitas e produção',
@@ -9786,6 +9968,81 @@ def receitas() -> str | Response:
         ordens=ordens,
         lojas=lojas,
         produtos_linha_produtos=produtos_linha_produtos,
+    )
+
+
+
+
+@app.get('/receitas/produtos-linha/exportar.xlsx')
+@login_required
+@module_required('receitas')
+def exportar_produtos_linha_receita_xlsx() -> Response:
+    """Exporta para Excel todos os itens liberados para criação de receita."""
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.utils import get_column_letter
+    except ImportError:
+        flash('Para exportar em Excel, instale a dependência openpyxl.', 'error')
+        return redirect(url_for('receitas'))
+
+    with closing(get_conn()) as conn:
+        produtos = listar_produtos_permitidos_receita(conn)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Produtos Receita'
+    headers = [
+        'Código', 'Código de barras', 'Descrição', 'Categoria', 'Linha ERP',
+        'Caminho ERP', 'Quantidade atual', 'Custo unitário', 'Valor total', 'Atualizado em'
+    ]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color='FFFFFF')
+        cell.fill = PatternFill('solid', fgColor='1F7A3A')
+        cell.alignment = Alignment(horizontal='center')
+
+    for item in produtos:
+        quantidade = float(item.get('quantidade_atual') or 0)
+        custo = float(item.get('custo_unitario') or 0)
+        ws.append([
+            item.get('codigo') or '',
+            item.get('codigo_barras') or '',
+            item.get('descricao') or '',
+            item.get('categoria_receita') or '',
+            item.get('linha_erp') or '',
+            item.get('linha_caminho_erp') or '',
+            quantidade,
+            custo,
+            quantidade * custo,
+            item.get('erp_atualizado_em') or item.get('atualizado_em') or '',
+        ])
+
+    money_cols = {'H', 'I'}
+    number_cols = {'G'}
+    for row in ws.iter_rows(min_row=2):
+        for cell in row:
+            if cell.column_letter in money_cols:
+                cell.number_format = 'R$ #,##0.00'
+            elif cell.column_letter in number_cols:
+                cell.number_format = '#,##0.###'
+
+    for idx, col in enumerate(ws.columns, start=1):
+        max_len = 0
+        for cell in col:
+            max_len = max(max_len, len(str(cell.value or '')))
+        ws.column_dimensions[get_column_letter(idx)].width = min(max_len + 2, 55)
+    ws.freeze_panes = 'A2'
+    ws.auto_filter.ref = ws.dimensions
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return send_file(
+        buffer,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=f'produtos_receita_padaria_industria_cd_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx',
     )
 
 

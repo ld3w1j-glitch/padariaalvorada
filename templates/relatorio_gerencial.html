@@ -10,6 +10,7 @@
         <p class="muted">Resumo dos últimos {{ dados.periodo }} dias • Gerado em {{ dados.gerado_em }}</p>
       </div>
       <div class="inline">
+        <a class="btn btn-secondary" href="{{ url_for('relatorio_gerencial_produtos_linha_excel', periodo=dados.periodo, linha_base=dados.linha_base, sublinha=dados.sublinha) }}">Exportar Excel da linha</a>
         <a class="btn" href="{{ url_for('relatorio_gerencial_pdf', periodo=dados.periodo, linha_base=dados.linha_base, sublinha=dados.sublinha) }}">Exportar PDF</a>
       </div>
     </div>
