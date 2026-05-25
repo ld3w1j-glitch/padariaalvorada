@@ -3406,3 +3406,16 @@ body {
     overflow: hidden !important;
   }
 }
+
+.queue-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.btn-sm {
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.2;
+}

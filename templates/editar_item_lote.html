@@ -1,0 +1,77 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="main"><div class="wrap">
+  <div class="card">
+    <div class="toolbar">
+      <div>
+        <h1 class="section-title">Editar item do lote</h1>
+        <div class="muted">{{ lote_nome }} • {{ data_referencia }}</div>
+      </div>
+      <div class="inline">
+        <a class="btn btn-secondary" href="{{ url_for('grade_lote', lote_codigo=lote_codigo) }}">Voltar</a>
+      </div>
+    </div>
+
+    <form method="post" class="op-box">
+      <div class="op-subtitle">Altere o produto e as quantidades por loja. Deixe a quantidade zerada para remover o item daquela loja.</div>
+      <div class="op-form-grid">
+        <div>
+          <label class="op-label">CÓDIGO</label>
+          <input class="op-input" type="text" id="codigo_produto" name="codigo" value="{{ item.codigo }}" required>
+        </div>
+        <div>
+          <label class="op-label">DESCRIÇÃO</label>
+          <input class="op-input" type="text" id="descricao_produto" name="descricao" value="{{ item.descricao }}" required>
+        </div>
+        <div>
+          <label class="op-label">FATOR DA EMBALAGEM</label>
+          <input class="op-input" type="text" id="fator_embalagem" name="fator_embalagem" value="{{ fmt_fator_embalagem(item.fator_embalagem) }}" required>
+        </div>
+      </div>
+
+      <div class="qty-grid">
+        {% for sep in separacoes %}
+        {% set quantidade_unidade = quantidades_por_sep.get(sep.id, 0) %}
+        <div class="qty-card">
+          <strong>{{ sep.store_nome }}</strong>
+          <div class="mini">Status: {{ sep.status }}</div>
+          <input class="qty-input" type="text" name="qty_{{ sep.id }}" value="{{ fmt_num(quantidade_em_embalagens(quantidade_unidade, item.fator_embalagem)) }}" placeholder="0" {% if sep.status == 'FINALIZADA' %}disabled{% endif %}>
+          <div class="mini">Atual: {{ fmt_num(quantidade_unidade) }} unidades</div>
+        </div>
+        {% endfor %}
+      </div>
+
+      <div class="operation-footer-actions">
+        <button class="btn" type="submit">Salvar alterações</button>
+        <a class="btn btn-secondary" href="{{ url_for('grade_lote', lote_codigo=lote_codigo) }}">Cancelar</a>
+      </div>
+    </form>
+  </div>
+</div></section>
+
+<script>
+(function(){
+  const codigoInput = document.getElementById('codigo_produto');
+  const descricaoInput = document.getElementById('descricao_produto');
+  const fatorInput = document.getElementById('fator_embalagem');
+  if (!codigoInput || !descricaoInput || !fatorInput) return;
+  let timer = null;
+  async function buscarProduto() {
+    const codigo = codigoInput.value.trim();
+    if (!codigo) return;
+    try {
+      const resp = await fetch(`{{ url_for('api_produto') }}?codigo=${encodeURIComponent(codigo)}`);
+      const data = await resp.json();
+      if (!data.ok) return;
+      if (data.codigo) codigoInput.value = data.codigo;
+      if (data.descricao) descricaoInput.value = data.descricao;
+      if (data.fator_embalagem) fatorInput.value = data.fator_embalagem;
+    } catch (err) {
+      console.error(err);
+    }
+  }
+  codigoInput.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(buscarProduto, 250); });
+  codigoInput.addEventListener('blur', buscarProduto);
+})();
+</script>
+{% endblock %}

@@ -6725,6 +6725,52 @@ def pode_acessar_lote_operacao(separacoes: list[sqlite3.Row], modo: str) -> bool
     return False
 
 
+def usuario_pode_gerenciar_lote(separacoes: list[sqlite3.Row]) -> bool:
+    """Permite alterar a montagem do lote apenas para admin ou para quem criou o lote."""
+    if g.user is None:
+        return False
+    if user_is_admin(g.user):
+        return True
+    user_id = int(g.user["id"])
+    return any(int(sep["criado_por"] or 0) == user_id for sep in separacoes)
+
+
+def lote_tem_item_movimentado(lote_codigo: str, codigo: str) -> bool:
+    chave_expr = lote_operacao_chave_expr("s")
+    row = query_one(
+        f"""
+        SELECT COUNT(*) AS total
+        FROM separation_items si
+        JOIN separations s ON s.id = si.separation_id
+        WHERE {chave_expr} = ?
+          AND si.codigo = ?
+          AND (COALESCE(si.quantidade_separada, 0) > 0
+               OR COALESCE(si.quantidade_conferida, 0) > 0
+               OR si.status <> 'PENDENTE'
+               OR s.status = 'FINALIZADA')
+        """,
+        (lote_codigo, codigo),
+    )
+    return bool(row and int(row["total"] or 0) > 0)
+
+
+def linhas_item_lote(lote_codigo: str, codigo: str) -> list[sqlite3.Row]:
+    chave_expr = lote_operacao_chave_expr("s")
+    return query_all(
+        f"""
+        SELECT si.*, s.store_id, s.status AS separation_status, st.nome AS store_nome
+        FROM separation_items si
+        JOIN separations s ON s.id = si.separation_id
+        JOIN stores st ON st.id = s.store_id
+        WHERE {chave_expr} = ?
+          AND si.codigo = ?
+        ORDER BY st.nome COLLATE NOCASE ASC, s.id ASC
+        """,
+        (lote_codigo, codigo),
+    )
+
+
+
 def itens_do_lote_para_fluxo(operacao_chave: str, separacoes: list[sqlite3.Row]) -> list[dict[str, Any]]:
     store_ids = [row["store_id"] for row in separacoes]
     store_names = {row["store_id"]: row["store_nome"] for row in separacoes}
@@ -6881,11 +6927,17 @@ def grade_lote(lote_codigo: str) -> str | Response:
         flash("Lote não encontrado.", "error")
         return redirect(url_for("listar_lotes"))
 
-    # Regra de permissão: separador apenas separa itens já lançados.
-    # Ele não pode abrir a grade de montagem nem adicionar produtos ao pedido criado.
-    if not user_is_admin(g.user) and normalize_role(g.user["role"]) == "separador":
-        flash("Seu acesso é apenas para separar itens. A montagem/adição de produtos fica com o responsável/admin.", "error")
+    pode_gerenciar = usuario_pode_gerenciar_lote(separacoes)
+
+    # Regra de permissão: separador comum apenas separa itens já lançados.
+    # Quem criou o lote pode voltar à grade para editar ou excluir itens antes da separação.
+    if not pode_gerenciar and normalize_role(g.user["role"]) == "separador":
+        flash("Seu acesso é apenas para separar itens. A montagem/adição de produtos fica com o usuário que criou o lote ou admin.", "error")
         return redirect(url_for("separar_itens_lote", lote_codigo=lote_codigo))
+
+    if not pode_gerenciar:
+        flash("Apenas o usuário que criou o lote ou admin pode adicionar, editar ou excluir itens deste lote.", "error")
+        return redirect(url_for("listar_lotes"))
 
     if request.method == "POST":
         codigo = request.form.get("codigo", "").strip()
@@ -6957,12 +7009,121 @@ def grade_lote(lote_codigo: str) -> str | Response:
         conferente_nome=primeira["conferente_nome"],
         separacoes=separacoes,
         produtos=produtos_do_lote(lote_codigo, separacoes),
+        pode_gerenciar=pode_gerenciar,
     )
 
 
+@app.route("/lotes/<lote_codigo>/item/<path:codigo>/editar", methods=["GET", "POST"])
+@login_required
+@module_required("lotes")
+def editar_item_lote(lote_codigo: str, codigo: str) -> str | Response:
+    separacoes = carregar_lote(lote_codigo)
+    if not separacoes:
+        flash("Lote não encontrado.", "error")
+        return redirect(url_for("listar_lotes"))
+    if not usuario_pode_gerenciar_lote(separacoes):
+        flash("Apenas o usuário que criou o lote ou admin pode editar itens deste lote.", "error")
+        return redirect(url_for("grade_lote", lote_codigo=lote_codigo))
+    if lote_tem_item_movimentado(lote_codigo, codigo):
+        flash("Este item já foi separado/conferido ou está em lote finalizado. Para proteger o histórico, ele não pode ser editado aqui.", "error")
+        return redirect(url_for("grade_lote", lote_codigo=lote_codigo))
+
+    linhas_existentes = linhas_item_lote(lote_codigo, codigo)
+    if not linhas_existentes:
+        flash("Item não encontrado no lote.", "error")
+        return redirect(url_for("grade_lote", lote_codigo=lote_codigo))
+
+    por_separacao = {int(row["separation_id"]): row for row in linhas_existentes}
+    item_base = linhas_existentes[0]
+
+    if request.method == "POST":
+        novo_codigo = request.form.get("codigo", "").strip()
+        descricao = request.form.get("descricao", "").strip()
+        try:
+            fator_embalagem = parse_fator_embalagem(request.form.get("fator_embalagem", "1"))
+        except ValueError as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("editar_item_lote", lote_codigo=lote_codigo, codigo=codigo))
+        if not novo_codigo or not descricao:
+            flash("Informe código e descrição.", "error")
+            return redirect(url_for("editar_item_lote", lote_codigo=lote_codigo, codigo=codigo))
+
+        quantidades: dict[int, float] = {}
+        for sep in separacoes:
+            raw = request.form.get(f"qty_{sep['id']}", "").strip()
+            if not raw:
+                quantidades[int(sep["id"])] = 0.0
+                continue
+            try:
+                quantidade_emb = parse_float(raw, f"Quantidade da loja {sep['store_nome']}")
+            except ValueError as exc:
+                flash(str(exc), "error")
+                return redirect(url_for("editar_item_lote", lote_codigo=lote_codigo, codigo=codigo))
+            quantidades[int(sep["id"])] = max(quantidade_emb, 0.0) * fator_embalagem
+
+        stock = query_one("SELECT custo_unitario FROM stock_items WHERE codigo = ?", (novo_codigo,))
+        custo_ref = stock["custo_unitario"] if stock else float(item_base["custo_unitario_ref"] or 0)
+
+        with closing(get_conn()) as conn:
+            conn.execute(
+                "DELETE FROM separation_items WHERE separation_id IN (%s) AND codigo = ?" % ",".join("?" for _ in separacoes),
+                tuple(int(sep["id"]) for sep in separacoes) + (codigo,),
+            )
+            for sep in separacoes:
+                quantidade = float(quantidades.get(int(sep["id"]), 0.0))
+                if quantidade <= 0:
+                    continue
+                conn.execute(
+                    """
+                    INSERT INTO separation_items (separation_id, codigo, descricao, fator_embalagem, quantidade_pedida, quantidade_separada, status, custo_unitario_ref, criado_em, atualizado_em)
+                    VALUES (?, ?, ?, ?, ?, 0, 'PENDENTE', ?, ?, ?)
+                    """,
+                    (int(sep["id"]), novo_codigo, descricao, fator_embalagem, quantidade, custo_ref, agora_iso(), agora_iso()),
+                )
+            conn.commit()
+
+        registrar_auditoria("editar_item_lote", "separation_items", lote_codigo, {"codigo_antigo": codigo, "codigo_novo": novo_codigo, "descricao": descricao})
+        flash("Item do lote atualizado com sucesso.", "success")
+        return redirect(url_for("grade_lote", lote_codigo=lote_codigo))
+
+    quantidades_por_sep = {int(row["separation_id"]): float(row["quantidade_pedida"] or 0) for row in linhas_existentes}
+    return render_template(
+        "editar_item_lote.html",
+        title="Editar item do lote",
+        lote_codigo=lote_codigo,
+        lote_nome=separacoes[0]["lote_nome"],
+        data_referencia=separacoes[0]["data_referencia"],
+        separacoes=separacoes,
+        item=item_base,
+        quantidades_por_sep=quantidades_por_sep,
+    )
 
 
+@app.post("/lotes/<lote_codigo>/item/<path:codigo>/excluir")
+@login_required
+@module_required("lotes")
+def excluir_item_lote(lote_codigo: str, codigo: str) -> Response:
+    separacoes = carregar_lote(lote_codigo)
+    if not separacoes:
+        flash("Lote não encontrado.", "error")
+        return redirect(url_for("listar_lotes"))
+    if not usuario_pode_gerenciar_lote(separacoes):
+        flash("Apenas o usuário que criou o lote ou admin pode excluir itens deste lote.", "error")
+        return redirect(url_for("grade_lote", lote_codigo=lote_codigo))
+    if lote_tem_item_movimentado(lote_codigo, codigo):
+        flash("Este item já foi separado/conferido ou está em lote finalizado. Para proteger o histórico, ele não pode ser excluído aqui.", "error")
+        return redirect(url_for("grade_lote", lote_codigo=lote_codigo))
 
+    ids = [int(sep["id"]) for sep in separacoes]
+    with closing(get_conn()) as conn:
+        cur = conn.execute(
+            "DELETE FROM separation_items WHERE separation_id IN (%s) AND codigo = ?" % ",".join("?" for _ in ids),
+            tuple(ids) + (codigo,),
+        )
+        conn.commit()
+    registrar_auditoria("excluir_item_lote", "separation_items", lote_codigo, {"codigo": codigo, "linhas_removidas": cur.rowcount})
+    flash("Item excluído do lote com sucesso.", "success")
+    return redirect(url_for("grade_lote", lote_codigo=lote_codigo))
 
 
 @app.route("/lotes/<lote_codigo>/separar-itens", methods=["GET", "POST"])
